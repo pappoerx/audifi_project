@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AudiFi | Hall Discovery</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            knustGold: '#ffcc00',
+            knustMint: '#E8F1F0',
+          },
+          fontFamily: {
+            sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],
+          },
+          boxShadow: { soft: '0 12px 40px rgba(15, 23, 42, 0.08)' },
+        },
+      },
+    };
+  </script>
+</head>
+<body class="min-h-screen bg-knustMint font-sans text-gray-800 antialiased">
+  <div class="flex min-h-screen">
+    <aside id="sidebar" class="fixed inset-y-0 left-0 z-30 hidden w-72 border-r border-white/40 bg-white/70 px-4 py-6 shadow-soft backdrop-blur-xl md:sticky md:top-0 md:flex md:h-screen md:flex-col md:self-start md:overflow-hidden">
+      <div class="mb-8 flex items-center gap-3 px-3">
+        <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-knustGold text-sm font-bold text-black">AF</div>
+        <div>
+          <p class="text-sm font-semibold text-gray-900">Audifi</p>
+          <p class="text-xs text-gray-500">Hall Discovery Portal</p>
+        </div>
+      </div>
+
+      <nav class="flex-1 space-y-1 overflow-y-auto px-1">
+        <a href="studentpage.html" class="flex items-center gap-3 rounded-xl bg-knustGold/20 px-3 py-2.5 text-sm font-medium text-gray-900">
+          <i data-lucide="layout-dashboard" class="h-4 w-4"></i>
+          Hall Discovery
+        </a>
+        <a href="home_page.html" class="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-gray-600 transition hover:bg-knustGold/10 hover:text-gray-900">
+          <i data-lucide="house" class="h-4 w-4"></i>
+          Home
+        </a>
+        <a href="lecturer_login.html" class="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-gray-600 transition hover:bg-knustGold/10 hover:text-gray-900">
+          <i data-lucide="user-round-check" class="h-4 w-4"></i>
+          Lecturer Login
+        </a>
+        <a href="staffpage.html" class="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-gray-600 transition hover:bg-knustGold/10 hover:text-gray-900">
+          <i data-lucide="shield-check" class="h-4 w-4"></i>
+          Staff Portal
+        </a>
+      </nav>
+
+      <div class="mt-auto space-y-3 px-3 pt-8">
+        <button type="button" id="studentPreferencesBtn" class="flex w-full items-center gap-3 rounded-xl border border-white/50 bg-white/50 px-3 py-2.5 text-left text-sm font-medium text-gray-700 transition hover:bg-knustGold/10">
+          <i data-lucide="settings" class="h-4 w-4"></i>
+          Preferences
+        </button>
+        <button id="signOutBtn" class="w-full rounded-xl bg-knustGold px-4 py-2.5 text-sm font-semibold text-black transition hover:bg-yellow-500">
+          Sign Out
+        </button>
+      </div>
+    </aside>
+
+    <div class="flex min-w-0 flex-1 flex-col">
+      <header class="sticky top-0 z-20 border-b border-white/50 bg-white/65 px-4 py-4 backdrop-blur-xl md:px-8">
+        <div class="flex items-center justify-between gap-4">
+          <div class="flex items-center gap-3">
+            <button id="menuToggle" class="inline-flex items-center justify-center rounded-xl border border-gray-200 p-2 text-gray-700 transition hover:bg-knustGold/10 md:hidden">
+              <i data-lucide="menu" class="h-5 w-5"></i>
+            </button>
+            <div>
+              <h1 id="welcomeTitle" class="text-xl font-semibold tracking-tight text-gray-900 md:text-2xl">Welcome back, Student</h1>
+              <p class="text-sm text-gray-500">
+                Last updated:
+                <span id="lastUpdated" class="font-medium text-gray-700">just now</span>
+              </p>
+            </div>
+          </div>
+          <div class="hidden items-center gap-3 md:flex">
+            <div class="text-right">
+              <p id="studentName" class="text-sm font-semibold text-gray-900">Kwame Mensah</p>
+              <p id="studentProgramLine" class="text-xs text-gray-500">BSc Information Systems</p>
+            </div>
+            <div id="studentAvatarInitials" class="flex h-10 w-10 items-center justify-center rounded-full bg-knustGold/20 text-sm font-semibold text-gray-900">KM</div>
+          </div>
+        </div>
+      </header>
+
+      <main class="flex-1 p-4 md:p-8">
+        <section class="mb-6 grid gap-4 lg:grid-cols-2">
+          <article class="rounded-2xl border border-white/50 bg-white/65 p-6 shadow-soft backdrop-blur-xl">
+            <div class="mb-4 flex items-center justify-between">
+              <div>
+                <h2 class="text-lg font-semibold text-gray-900">Campus Live Status</h2>
+                <p class="text-sm text-gray-500">Real-time hall signals from lecturer keypad check-ins.</p>
+              </div>
+              <span class="inline-flex items-center gap-2 rounded-full bg-rose-100 px-3 py-1 text-xs font-semibold text-rose-700">
+                <span class="h-2 w-2 animate-pulse rounded-full bg-rose-500"></span>
+                LIVE
+              </span>
+            </div>
+            <div class="space-y-3 text-sm text-gray-700">
+              <div class="flex items-center gap-3 rounded-xl border border-white/50 bg-white/70 px-4 py-3">
+                <span class="h-3 w-3 rounded-full bg-rose-500"></span>
+                <p><span class="font-semibold">Occupied</span> - Lecturer has checked in via keypad.</p>
+              </div>
+              <div class="flex items-center gap-3 rounded-xl border border-white/50 bg-white/70 px-4 py-3">
+                <span class="h-3 w-3 rounded-full bg-amber-500"></span>
+                <p><span class="font-semibold">Booked - Pending</span> - Room reserved, lecturer not yet checked in.</p>
+              </div>
+              <div class="flex items-center gap-3 rounded-xl border border-white/50 bg-white/70 px-4 py-3">
+                <span class="h-3 w-3 rounded-full bg-emerald-500"></span>
+                <p><span class="font-semibold">Available</span> - No active booking in this time window.</p>
+              </div>
+            </div>
+          </article>
+
+          <article class="rounded-2xl border border-white/50 bg-white/65 p-6 shadow-soft backdrop-blur-xl">
+            <h3 class="text-sm font-semibold uppercase tracking-wide text-gray-500">Student Actions</h3>
+            <p class="mt-3 text-sm text-gray-700">Students can discover hall status only. Booking remains lecturer-only.</p>
+            <div class="mt-5 grid gap-3 sm:grid-cols-2">
+              <button class="rounded-xl bg-knustGold px-4 py-2.5 text-sm font-semibold text-black transition hover:bg-yellow-500">
+                Find Nearest Empty Hall
+              </button>
+              <button type="button" id="studentReportIssueBtn" class="rounded-xl border border-gray-300 bg-white/80 px-4 py-2.5 text-sm font-semibold text-gray-800 transition hover:bg-knustGold/10">
+                Report Issue
+              </button>
+            </div>
+            <p class="mt-4 text-xs text-gray-500">Tip: Live cards with pulsing badge indicate active occupancy right now.</p>
+          </article>
+        </section>
+
+        <section class="mb-6 rounded-2xl border border-white/50 bg-white/55 p-6 shadow-soft backdrop-blur-xl">
+          <div class="mb-4 flex items-center justify-between gap-2">
+            <div>
+              <h3 class="text-lg font-semibold text-gray-900">Recent lecturer activity</h3>
+              <p class="text-xs text-gray-500">Bookings, cancellations, and call-offs from staff (live when lecturers use the portal).</p>
+            </div>
+          </div>
+          <div id="studentLecturerActivityList" class="max-h-72 overflow-y-auto"></div>
+        </section>
+
+        <section class="rounded-2xl border border-white/50 bg-white/55 p-6 shadow-soft backdrop-blur-xl">
+          <div class="mb-4 flex items-center justify-between">
+            <h3 class="text-lg font-semibold text-gray-900">Live Status Feed</h3>
+            <p id="liveCount" class="text-xs font-medium text-gray-500">0 halls tracked</p>
+          </div>
+          <div id="hallsGrid" class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"></div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <div id="studentReportIssueModal" class="fixed inset-0 z-[100] hidden" aria-hidden="true" aria-labelledby="studentReportIssueTitle" role="dialog">
+    <div class="absolute inset-0 bg-gray-900/45 backdrop-blur-[2px]"></div>
+    <div id="studentReportIssueShell" class="absolute inset-0 flex items-center justify-center overflow-y-auto p-4 py-10">
+      <div class="relative w-full max-w-md rounded-2xl border border-white/60 bg-white shadow-xl">
+        <div class="flex items-start justify-between border-b border-gray-100 px-5 py-4">
+          <div>
+            <h2 id="studentReportIssueTitle" class="text-lg font-semibold text-gray-900">Report an issue</h2>
+            <p class="mt-0.5 text-xs text-gray-500">Tell us what went wrong. Your report is stored on this device for the demo.</p>
+          </div>
+          <button type="button" id="studentReportIssueClose" class="rounded-lg px-2 py-1 text-sm font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800" aria-label="Close">Close</button>
+        </div>
+        <form id="studentReportIssueForm" class="space-y-4 px-5 py-4">
+          <div>
+            <label for="reportIssueCategory" class="block text-sm font-medium text-gray-700">Issue type</label>
+            <select id="reportIssueCategory" name="category" required class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:border-knustGold focus:outline-none focus:ring-2 focus:ring-knustGold/25">
+              <option value="">Select a category</option>
+              <option value="wrong_status">Wrong hall status on map / feed</option>
+              <option value="app_bug">App or page not working</option>
+              <option value="accessibility">Accessibility or usability</option>
+              <option value="safety">Safety or emergency (call security too)</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div>
+            <label for="reportIssueLocation" class="block text-sm font-medium text-gray-700">Hall or location (optional)</label>
+            <input id="reportIssueLocation" name="location" type="text" class="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-knustGold focus:outline-none focus:ring-2 focus:ring-knustGold/25" placeholder="e.g. Block A – Main, FF 03" />
+          </div>
+          <div>
+            <label for="reportIssueDescription" class="block text-sm font-medium text-gray-700">Describe the problem <span class="text-red-600">*</span></label>
+            <textarea id="reportIssueDescription" name="description" required rows="5" maxlength="2000" class="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-knustGold focus:outline-none focus:ring-2 focus:ring-knustGold/25" placeholder="What happened? What did you expect? Be as specific as you can."></textarea>
+            <p class="mt-1 text-xs text-gray-500">Minimum 10 characters.</p>
+          </div>
+          <div>
+            <label for="reportIssueContact" class="block text-sm font-medium text-gray-700">Contact email (optional)</label>
+            <input id="reportIssueContact" name="contact" type="email" autocomplete="email" class="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-knustGold focus:outline-none focus:ring-2 focus:ring-knustGold/25" placeholder="so we can follow up if AudiFi adds email support" />
+          </div>
+          <div class="flex flex-col-reverse gap-2 border-t border-gray-100 pt-4 sm:flex-row sm:justify-end">
+            <button type="button" id="studentReportIssueCancel" class="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
+            <button type="submit" class="rounded-lg bg-knustGold px-4 py-2 text-sm font-semibold text-black hover:bg-yellow-500">Submit report</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div id="studentPreferencesModal" class="fixed inset-0 z-[100] hidden" aria-hidden="true" aria-labelledby="studentPreferencesTitle" role="dialog">
+    <div class="absolute inset-0 bg-gray-900/45 backdrop-blur-[2px]"></div>
+    <div id="studentPreferencesShell" class="absolute inset-0 flex items-center justify-center overflow-y-auto p-4 py-10">
+      <div class="relative flex max-h-[min(90vh,820px)] w-full max-w-lg flex-col rounded-2xl border border-white/60 bg-white shadow-xl">
+        <div class="flex shrink-0 items-start justify-between border-b border-gray-100 px-5 py-4">
+          <div>
+            <h2 id="studentPreferencesTitle" class="text-lg font-semibold text-gray-900">Preferences</h2>
+            <p class="mt-0.5 text-xs text-gray-500">Profile, security, and notifications (saved on this device).</p>
+          </div>
+          <button type="button" id="studentPreferencesClose" class="rounded-lg px-2 py-1 text-sm font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800">Close</button>
+        </div>
+
+        <div class="shrink-0 border-b border-gray-100 px-3 pt-2">
+          <nav class="flex flex-wrap gap-1" role="tablist" aria-label="Preferences sections">
+            <button type="button" role="tab" data-student-pref-tab="profile" class="student-pref-tab rounded-t-lg px-3 py-2 text-xs font-semibold sm:text-sm">Profile</button>
+            <button type="button" role="tab" data-student-pref-tab="security" class="student-pref-tab rounded-t-lg px-3 py-2 text-xs font-semibold sm:text-sm">Security</button>
+            <button type="button" role="tab" data-student-pref-tab="notifications" class="student-pref-tab rounded-t-lg px-3 py-2 text-xs font-semibold sm:text-sm">Notifications</button>
+            <button type="button" role="tab" data-student-pref-tab="about" class="student-pref-tab rounded-t-lg px-3 py-2 text-xs font-semibold sm:text-sm">About</button>
+          </nav>
+        </div>
+
+        <div class="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+          <div id="studentPrefPanelProfile" data-student-pref-panel="profile" class="student-pref-panel space-y-4">
+            <div>
+              <label for="studentPrefDisplayName" class="block text-sm font-medium text-gray-700">Display name</label>
+              <input id="studentPrefDisplayName" type="text" autocomplete="name" class="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-knustGold focus:outline-none focus:ring-2 focus:ring-knustGold/25" placeholder="e.g. Kwame Mensah" />
+              <p class="mt-1 text-xs text-gray-500">Shown in the header greeting.</p>
+            </div>
+            <div>
+              <label for="studentPrefProgram" class="block text-sm font-medium text-gray-700">Programme / college</label>
+              <input id="studentPrefProgram" type="text" class="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-knustGold focus:outline-none focus:ring-2 focus:ring-knustGold/25" placeholder="e.g. BSc Computer Engineering" />
+            </div>
+            <div>
+              <label for="studentPrefCampusZone" class="block text-sm font-medium text-gray-700">Preferred campus zone</label>
+              <select id="studentPrefCampusZone" class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:border-knustGold focus:outline-none focus:ring-2 focus:ring-knustGold/25">
+                <option value="">No preference</option>
+                <option value="Commercial Area">Commercial Area</option>
+                <option value="Engineering Strip">Engineering Strip</option>
+                <option value="Business School Wing">Business School Wing</option>
+                <option value="North Academic Block">North Academic Block</option>
+                <option value="Central Walkway">Central Walkway</option>
+              </select>
+              <p class="mt-1 text-xs text-gray-500">Used later to sort “nearest” hall suggestions.</p>
+            </div>
+            <div class="rounded-xl border border-gray-100 bg-knustMint/50 px-3 py-3">
+              <label class="flex cursor-pointer items-start gap-3">
+                <input id="studentPrefCompactCards" type="checkbox" class="mt-1 h-4 w-4 rounded border-gray-300 text-knustGold focus:ring-knustGold" />
+                <span>
+                  <span class="text-sm font-medium text-gray-800">Compact hall cards</span>
+                  <span class="block text-xs text-gray-500">Reduce spacing in the live feed (visual preference).</span>
+                </span>
+              </label>
+            </div>
+          </div>
+
+          <div id="studentPrefPanelSecurity" data-student-pref-panel="security" class="student-pref-panel hidden space-y-4">
+            <p class="text-xs text-gray-500">Portal password for this demo only. Production will use your institutional login.</p>
+            <form id="studentPasswordForm" class="space-y-4">
+              <div>
+                <label for="studentPrefCurrentPassword" class="block text-sm font-medium text-gray-700">Current password</label>
+                <input id="studentPrefCurrentPassword" type="password" autocomplete="current-password" class="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-knustGold focus:outline-none focus:ring-2 focus:ring-knustGold/25" placeholder="Leave blank if you have not set one yet" />
+              </div>
+              <div>
+                <label for="studentPrefNewPassword" class="block text-sm font-medium text-gray-700">New password</label>
+                <input id="studentPrefNewPassword" type="password" autocomplete="new-password" class="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-knustGold focus:outline-none focus:ring-2 focus:ring-knustGold/25" placeholder="At least 8 characters" />
+              </div>
+              <div>
+                <label for="studentPrefConfirmPassword" class="block text-sm font-medium text-gray-700">Confirm new password</label>
+                <input id="studentPrefConfirmPassword" type="password" autocomplete="new-password" class="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-knustGold focus:outline-none focus:ring-2 focus:ring-knustGold/25" />
+              </div>
+              <button type="submit" class="w-full rounded-lg bg-gray-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-gray-800 sm:w-auto">Update password</button>
+            </form>
+          </div>
+
+          <div id="studentPrefPanelNotifications" data-student-pref-panel="notifications" class="student-pref-panel hidden space-y-4">
+            <div>
+              <label for="studentPrefNotifyEmail" class="block text-sm font-medium text-gray-700">Notification email</label>
+              <input id="studentPrefNotifyEmail" type="email" autocomplete="email" class="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-knustGold focus:outline-none focus:ring-2 focus:ring-knustGold/25" placeholder="you@st.knust.edu.gh" />
+            </div>
+            <div class="space-y-3 rounded-xl border border-gray-100 bg-knustMint/40 px-3 py-3">
+              <label class="flex cursor-pointer items-start gap-3">
+                <input id="studentPrefNotifyHalls" type="checkbox" class="mt-1 h-4 w-4 rounded border-gray-300 text-knustGold focus:ring-knustGold" />
+                <span>
+                  <span class="text-sm font-medium text-gray-800">Hall availability alerts</span>
+                  <span class="block text-xs text-gray-500">When wired up: nearby free halls and status changes.</span>
+                </span>
+              </label>
+              <label class="flex cursor-pointer items-start gap-3">
+                <input id="studentPrefNotifyLecturers" type="checkbox" class="mt-1 h-4 w-4 rounded border-gray-300 text-knustGold focus:ring-knustGold" />
+                <span>
+                  <span class="text-sm font-medium text-gray-800">Lecturer activity digest</span>
+                  <span class="block text-xs text-gray-500">Summaries of bookings and call-offs you see in the feed.</span>
+                </span>
+              </label>
+              <label class="flex cursor-pointer items-start gap-3">
+                <input id="studentPrefNotifyProduct" type="checkbox" class="mt-1 h-4 w-4 rounded border-gray-300 text-knustGold focus:ring-knustGold" />
+                <span>
+                  <span class="text-sm font-medium text-gray-800">AudiFi tips &amp; updates</span>
+                  <span class="block text-xs text-gray-500">Occasional product news for the competition build.</span>
+                </span>
+              </label>
+            </div>
+          </div>
+
+          <div id="studentPrefPanelAbout" data-student-pref-panel="about" class="student-pref-panel hidden space-y-4 text-sm text-gray-600">
+            <div class="rounded-xl border border-gray-100 bg-knustMint/60 px-4 py-4">
+              <p class="text-base font-semibold text-gray-900">AudiFi — Student</p>
+              <p class="mt-1 text-xs text-gray-500">Hall discovery for KNUST</p>
+              <p class="mt-3 text-xs leading-relaxed">Find live hall status, see lecturer activity, and locate empty rooms. Official bookings and keypad check-in remain with staff.</p>
+              <dl class="mt-4 grid gap-2 text-xs">
+                <div class="flex justify-between gap-4 border-t border-gray-200/80 pt-3">
+                  <dt class="text-gray-500">Version</dt>
+                  <dd class="font-medium text-gray-800">1.0.0</dd>
+                </div>
+                <div class="flex justify-between gap-4">
+                  <dt class="text-gray-500">Build</dt>
+                  <dd class="font-medium text-gray-800">Student portal (demo)</dd>
+                </div>
+                <div class="flex justify-between gap-4">
+                  <dt class="text-gray-500">Support</dt>
+                  <dd><a href="mailto:support@audifi.local" class="font-medium text-amber-700 hover:underline">support@audifi.local</a></dd>
+                </div>
+              </dl>
+            </div>
+            <p class="text-xs text-gray-400">Demo data stays in your browser until you connect a backend.</p>
+          </div>
+        </div>
+
+        <div class="flex shrink-0 flex-col-reverse gap-2 border-t border-gray-100 px-5 py-3 sm:flex-row sm:justify-end">
+          <button type="button" id="studentPreferencesDiscard" class="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Close</button>
+          <button type="button" id="studentPreferencesSave" class="rounded-lg bg-knustGold px-4 py-2 text-sm font-semibold text-black hover:bg-yellow-500">Save preferences</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js" defer></script>
+</body>
+</html>

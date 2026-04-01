@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AudiFi | Staff Portal</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            knustGold: '#ffcc00',
+          }
+        },
+        fontFamily: {
+          sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],
+        }
+      }
+    }
+  </script>
+</head>
+<body class="min-h-screen bg-[#E8F1F0] font-sans text-gray-800">
+
+  <div class="flex min-h-screen">
+    <!-- Sidebar -->
+    <aside id="sidebar" class="hidden w-64 flex-col border-r border-gray-200 bg-white shadow-md md:sticky md:top-0 md:flex md:h-screen md:self-start md:overflow-hidden">
+      <div class="px-6 py-5 border-b border-gray-200">
+        <h1 class="text-xl font-semibold text-gray-800">AudiFi</h1>
+        <p class="text-xs text-gray-500 mt-1">Staff Portal</p>
+      </div>
+      <nav class="flex-1 overflow-y-auto px-4 py-6 space-y-2">
+        <button class="active w-full text-left rounded-lg px-4 py-2 text-sm font-medium flex items-center gap-3">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path>
+          </svg>
+          Dashboard
+        </button>
+        <button class="w-full text-left rounded-lg px-4 py-2 text-sm font-medium text-gray-700 hover:bg-knustGold/20 hover:text-gray-900 flex items-center gap-3">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+          </svg>
+          Book Auditorium
+        </button>
+        <button class="w-full text-left rounded-lg px-4 py-2 text-sm font-medium text-gray-700 hover:bg-knustGold/20 hover:text-gray-900 flex items-center gap-3">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
+          </svg>
+          Manage Bookings
+        </button>
+        <button class="w-full text-left rounded-lg px-4 py-2 text-sm font-medium text-gray-700 hover:bg-knustGold/20 hover:text-gray-900 flex items-center gap-3">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+          </svg>
+          Analytics
+        </button>
+      </nav>
+      <div class="px-6 py-4 border-t border-gray-200">
+        <h5 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Quick Actions</h5>
+        <div class="space-y-2">
+          <button class="w-full text-left rounded-lg px-4 py-2 text-sm font-medium text-gray-700 hover:bg-knustGold/20 hover:text-gray-900 flex items-center gap-3">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+            </svg>
+            Support
+          </button>
+          <button type="button" id="staffSettingsBtn" class="w-full text-left rounded-lg px-4 py-2 text-sm font-medium text-gray-700 hover:bg-knustGold/20 hover:text-gray-900 flex items-center gap-3">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+            </svg>
+            Settings
+          </button>
+        </div>
+      </div>
+      <div class="px-6 pb-6">
+        <button id="signOutBtn" class="w-full rounded-lg bg-knustGold px-4 py-2 text-sm font-semibold text-black hover:bg-yellow-500">Sign Out</button>
+      </div>
+    </aside>
+
+    <!-- Main content -->
+    <div class="flex flex-1 flex-col">
+      <header class="flex items-center justify-between border-b border-gray-200 bg-white px-4 py-4 md:px-8">
+        <div class="flex items-center gap-3">
+          <button id="menuToggle" class="md:hidden inline-flex items-center justify-center rounded-lg p-2 text-gray-700 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-knustGold">
+            <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
+
+          <div>
+            <h2 class="text-lg font-semibold text-gray-800">AudiFi Staff Portal</h2>
+            <p class="text-sm text-gray-500" id="staffInfo">Welcome back, Administrator!</p>
+          </div>
+        </div>
+
+        <div class="hidden items-center gap-3 md:flex">
+          <span class="text-sm font-medium text-gray-700" id="staffName">Admin Name</span>
+          <div id="staffAvatarLetter" class="h-8 w-8 rounded-full bg-knustGold/20 flex items-center justify-center text-sm font-semibold text-gray-800">A</div>
+        </div>
+      </header>
+
+      <main class="flex-1 overflow-y-auto p-4 md:p-8">
+        <!-- Booking Form -->
+        <section class="mb-8">
+          <div class="rounded-2xl border border-gray-200 bg-white p-6">
+            <h3 class="text-xl font-semibold text-gray-800 mb-4">Book an Auditorium</h3>
+            <form id="bookingForm" class="space-y-4">
+              <div class="grid gap-4 md:grid-cols-2">
+                <div>
+                  <label for="auditoriumSelect" class="block text-sm font-medium text-gray-700">Select Auditorium</label>
+                  <select id="auditoriumSelect" class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:border-knustGold focus:ring-2 focus:ring-knustGold/30">
+                    <!-- Options populated by JS -->
+                  </select>
+                </div>
+                <div>
+                  <label for="courseSelect" class="block text-sm font-medium text-gray-700">Course</label>
+                  <select id="courseSelect" class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:border-knustGold focus:ring-2 focus:ring-knustGold/30">
+                    <!-- Options populated by JS -->
+                  </select>
+                </div>
+                <div>
+                  <label for="dateInput" class="block text-sm font-medium text-gray-700">Date</label>
+                  <input id="dateInput" type="date" class="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-knustGold focus:ring-2 focus:ring-knustGold/30" />
+                </div>
+                <div>
+                  <label for="timeSelect" class="block text-sm font-medium text-gray-700">Time Slot</label>
+                  <select id="timeSelect" class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:border-knustGold focus:ring-2 focus:ring-knustGold/30">
+                    <!-- Options populated by JS -->
+                  </select>
+                </div>
+              </div>
+              <div class="flex items-center justify-end gap-2">
+                <button type="button" id="cancelBooking" class="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
+                <button type="submit" class="rounded-lg bg-knustGold px-4 py-2 text-sm font-semibold text-black hover:bg-yellow-500">Book Auditorium</button>
+              </div>
+            </form>
+          </div>
+        </section>
+
+        <!-- Current Bookings -->
+        <section class="mb-8">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-xl font-semibold text-gray-800">Current Bookings</h3>
+            <span class="text-sm text-gray-500">Manage your scheduled sessions</span>
+          </div>
+
+          <div id="bookingsList" class="space-y-4">
+            <!-- Bookings populated by JS -->
+          </div>
+        </section>
+
+        <!-- Analytics Placeholder -->
+        <section class="grid gap-6 lg:grid-cols-2">
+          <div class="rounded-2xl border border-gray-200 bg-white p-6">
+            <h4 id="usageStatsHeading" class="text-base font-semibold text-gray-800">Usage Statistics</h4>
+            <p class="mt-1 text-xs text-gray-500">Key metrics from your booking roster and lecturer activity (last rollover at midnight, local time).</p>
+            <div id="usageStats" class="mt-4 space-y-4"></div>
+          </div>
+
+          <div class="rounded-2xl border border-gray-200 bg-white p-6">
+            <h4 class="text-base font-semibold text-gray-800">Recent Activity</h4>
+            <p class="mt-1 text-xs text-gray-500">Lecturer actions: new bookings, cancelled reservations, and called-off classes (same feed students can see on Hall Discovery).</p>
+            <div id="lecturerActivityList" class="mt-4 max-h-80 overflow-y-auto"></div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <div id="staffSettingsModal" class="fixed inset-0 z-[100] hidden" aria-hidden="true" aria-labelledby="staffSettingsTitle" role="dialog">
+    <div id="staffSettingsBackdrop" class="absolute inset-0 bg-gray-900/45 backdrop-blur-[2px]"></div>
+    <div id="staffSettingsShell" class="absolute inset-0 flex items-center justify-center overflow-y-auto p-4 py-10">
+      <div class="relative flex max-h-[min(90vh,820px)] w-full max-w-lg flex-col rounded-2xl border border-gray-200 bg-white shadow-xl">
+        <div class="flex shrink-0 items-start justify-between border-b border-gray-100 px-5 py-4">
+          <div>
+            <h2 id="staffSettingsTitle" class="text-lg font-semibold text-gray-900">Settings</h2>
+            <p class="mt-0.5 text-xs text-gray-500">Profile, security, and preferences (saved in this browser only).</p>
+          </div>
+          <button type="button" id="staffSettingsClose" class="rounded-lg px-2 py-1 text-sm font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800" aria-label="Close settings">Close</button>
+        </div>
+
+        <div class="shrink-0 border-b border-gray-100 px-3 pt-2">
+          <nav class="flex flex-wrap gap-1" role="tablist" aria-label="Settings sections">
+            <button type="button" role="tab" aria-selected="true" data-settings-tab="profile" class="settings-tab rounded-t-lg px-3 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50 sm:text-sm">Profile</button>
+            <button type="button" role="tab" aria-selected="false" data-settings-tab="security" class="settings-tab rounded-t-lg px-3 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50 sm:text-sm">Security</button>
+            <button type="button" role="tab" aria-selected="false" data-settings-tab="notifications" class="settings-tab rounded-t-lg px-3 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50 sm:text-sm">Notifications</button>
+            <button type="button" role="tab" aria-selected="false" data-settings-tab="about" class="settings-tab rounded-t-lg px-3 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50 sm:text-sm">About</button>
+          </nav>
+        </div>
+
+        <div class="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+          <div id="settingsPanelProfile" data-settings-panel="profile" class="settings-panel space-y-4">
+            <form id="staffProfileForm" class="space-y-4">
+              <div>
+                <label for="settingsDisplayName" class="block text-sm font-medium text-gray-700">Display name</label>
+                <input id="settingsDisplayName" name="displayName" type="text" autocomplete="name" class="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-knustGold focus:outline-none focus:ring-2 focus:ring-knustGold/25" placeholder="e.g. Dr. Kwame Asante" />
+                <p class="mt-1 text-xs text-gray-500">Shown in the header and on student-visible activity.</p>
+              </div>
+              <div>
+                <label for="settingsDepartment" class="block text-sm font-medium text-gray-700">Department / unit</label>
+                <input id="settingsDepartment" name="department" type="text" class="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-knustGold focus:outline-none focus:ring-2 focus:ring-knustGold/25" placeholder="e.g. Department of Computer Science" />
+              </div>
+              <div>
+                <label for="settingsDefaultTime" class="block text-sm font-medium text-gray-700">Default time slot</label>
+                <select id="settingsDefaultTime" name="defaultTime" class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:border-knustGold focus:outline-none focus:ring-2 focus:ring-knustGold/25">
+                  <option value="">No default (choose each booking)</option>
+                </select>
+              </div>
+              <div class="rounded-xl border border-gray-100 bg-gray-50/80 px-3 py-3">
+                <label class="flex cursor-pointer items-start gap-3">
+                  <input id="settingsConfirmCancel" name="confirmCancel" type="checkbox" class="mt-1 h-4 w-4 rounded border-gray-300 text-knustGold focus:ring-knustGold" />
+                  <span>
+                    <span class="text-sm font-medium text-gray-800">Confirm before cancel or call-off</span>
+                    <span class="block text-xs text-gray-500">Extra confirmation when removing bookings or calling off a class.</span>
+                  </span>
+                </label>
+              </div>
+            </form>
+          </div>
+
+          <div id="settingsPanelSecurity" data-settings-panel="security" class="settings-panel hidden space-y-4">
+            <p class="text-xs text-gray-500">Use a strong password. In production this will sync with KNUST authentication; for now it is stored only on this device for demo purposes.</p>
+            <form id="staffPasswordForm" class="space-y-4">
+              <div>
+                <label for="settingsCurrentPassword" class="block text-sm font-medium text-gray-700">Current password</label>
+                <input id="settingsCurrentPassword" type="password" autocomplete="current-password" class="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-knustGold focus:outline-none focus:ring-2 focus:ring-knustGold/25" placeholder="Leave blank if you have not set one yet" />
+              </div>
+              <div>
+                <label for="settingsNewPassword" class="block text-sm font-medium text-gray-700">New password</label>
+                <input id="settingsNewPassword" type="password" autocomplete="new-password" class="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-knustGold focus:outline-none focus:ring-2 focus:ring-knustGold/25" placeholder="At least 8 characters" />
+              </div>
+              <div>
+                <label for="settingsConfirmPassword" class="block text-sm font-medium text-gray-700">Confirm new password</label>
+                <input id="settingsConfirmPassword" type="password" autocomplete="new-password" class="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-knustGold focus:outline-none focus:ring-2 focus:ring-knustGold/25" />
+              </div>
+              <button type="submit" class="w-full rounded-lg bg-gray-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-gray-800 sm:w-auto">Update password</button>
+            </form>
+          </div>
+
+          <div id="settingsPanelNotifications" data-settings-panel="notifications" class="settings-panel hidden space-y-4">
+            <form id="staffNotificationsForm" class="space-y-4">
+              <div>
+                <label for="settingsNotifyEmail" class="block text-sm font-medium text-gray-700">Notification email</label>
+                <input id="settingsNotifyEmail" name="notifyEmail" type="email" autocomplete="email" class="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-knustGold focus:outline-none focus:ring-2 focus:ring-knustGold/25" placeholder="you@knust.edu.gh" />
+              </div>
+              <div class="space-y-3 rounded-xl border border-gray-100 bg-gray-50/80 px-3 py-3">
+                <label class="flex cursor-pointer items-start gap-3">
+                  <input id="settingsNotifyBookingConfirm" type="checkbox" class="mt-1 h-4 w-4 rounded border-gray-300 text-knustGold focus:ring-knustGold" />
+                  <span>
+                    <span class="text-sm font-medium text-gray-800">Booking confirmations</span>
+                    <span class="block text-xs text-gray-500">Email when a hall booking is created or changed (when email is wired up).</span>
+                  </span>
+                </label>
+                <label class="flex cursor-pointer items-start gap-3">
+                  <input id="settingsNotifyHallAlerts" type="checkbox" class="mt-1 h-4 w-4 rounded border-gray-300 text-knustGold focus:ring-knustGold" />
+                  <span>
+                    <span class="text-sm font-medium text-gray-800">Hall &amp; keypad alerts</span>
+                    <span class="block text-xs text-gray-500">Reminders about check-in codes and session start times.</span>
+                  </span>
+                </label>
+                <label class="flex cursor-pointer items-start gap-3">
+                  <input id="settingsNotifyProductNews" type="checkbox" class="mt-1 h-4 w-4 rounded border-gray-300 text-knustGold focus:ring-knustGold" />
+                  <span>
+                    <span class="text-sm font-medium text-gray-800">Product updates</span>
+                    <span class="block text-xs text-gray-500">Occasional tips about new AudiFi features.</span>
+                  </span>
+                </label>
+              </div>
+            </form>
+          </div>
+
+          <div id="settingsPanelAbout" data-settings-panel="about" class="settings-panel hidden space-y-4 text-sm text-gray-600">
+            <div class="rounded-xl border border-gray-100 bg-gray-50/90 px-4 py-4">
+              <p class="text-base font-semibold text-gray-900">AudiFi</p>
+              <p class="mt-1 text-xs text-gray-500">Hall discovery &amp; booking for KNUST</p>
+              <p class="mt-3 text-xs leading-relaxed">AudiFi helps students find halls in real time while lecturers manage official bookings and keypad check-in. Formerly branded as RoomRadar.</p>
+              <dl class="mt-4 grid gap-2 text-xs">
+                <div class="flex justify-between gap-4 border-t border-gray-200/80 pt-3">
+                  <dt class="text-gray-500">Version</dt>
+                  <dd id="audifiAboutVersion" class="font-medium text-gray-800">1.0.0</dd>
+                </div>
+                <div class="flex justify-between gap-4">
+                  <dt class="text-gray-500">Build</dt>
+                  <dd class="font-medium text-gray-800">Campus demo</dd>
+                </div>
+                <div class="flex justify-between gap-4">
+                  <dt class="text-gray-500">Support</dt>
+                  <dd><a href="mailto:support@audifi.local" class="font-medium text-knustGold hover:underline">support@audifi.local</a></dd>
+                </div>
+              </dl>
+            </div>
+            <p class="text-xs text-gray-400">Data on this screen is illustrative. Production deployment would use secure servers and institutional SSO.</p>
+          </div>
+        </div>
+
+        <div class="flex shrink-0 flex-col-reverse gap-2 border-t border-gray-100 px-5 py-3 sm:flex-row sm:justify-end">
+          <button type="button" id="staffSettingsCancel" class="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Close</button>
+          <button type="button" id="staffSettingsSave" class="rounded-lg bg-knustGold px-4 py-2 text-sm font-semibold text-black hover:bg-yellow-500">Save preferences</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js" defer></script>
+</body>
+</html>
