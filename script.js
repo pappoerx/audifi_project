@@ -1,6 +1,71 @@
 const AUDIFI_LECTURER_ACTIVITY_KEY = 'audiFiLecturerActivity';
 const AUDIFI_ACTIVITY_MAX = 40;
 
+const API_BASE = typeof window !== 'undefined' && window.AUDIFI_API_BASE ? window.AUDIFI_API_BASE : 'http://127.0.0.1:8000';
+const AUDIFI_TOKEN_KEY = 'audiFiAccessToken';
+
+function getToken() {
+  return localStorage.getItem(AUDIFI_TOKEN_KEY);
+}
+
+function setToken(token) {
+  localStorage.setItem(AUDIFI_TOKEN_KEY, token);
+}
+
+function clearToken() {
+  localStorage.removeItem(AUDIFI_TOKEN_KEY);
+}
+
+function apiDetailMessage(detail) {
+  if (detail == null) return 'Request failed';
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) {
+    return detail.map((x) => (typeof x === 'object' && x.msg ? x.msg : String(x))).join('; ');
+  }
+  return String(detail);
+}
+
+async function authFetch(path, options = {}) {
+  const headers = { ...(options.headers || {}) };
+  if (!(options.body instanceof FormData) && !headers['Content-Type']) {
+    headers['Content-Type'] = 'application/json';
+  }
+  const t = getToken();
+  if (t) headers.Authorization = `Bearer ${t}`;
+  const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  if (res.status === 401) {
+    clearToken();
+  }
+  if (!res.ok) {
+    let errBody = {};
+    try {
+      errBody = await res.json();
+    } catch {
+      /* ignore */
+    }
+    const msg = apiDetailMessage(errBody.detail) || res.statusText || 'Request failed';
+    throw new Error(msg);
+  }
+  if (res.status === 204) return null;
+  const ct = res.headers.get('content-type');
+  if (ct && ct.includes('application/json')) return res.json();
+  return res.text();
+}
+
+function mapApiActivityToEntry(a) {
+  return {
+    id: a.id,
+    at: typeof a.at === 'string' ? a.at : new Date(a.at).toISOString(),
+    type: a.type,
+    lecturerName: a.lecturer_name,
+    auditorium: a.auditorium,
+    course: a.course,
+    date: a.date || '',
+    time: a.time || '',
+    note: a.note || '',
+  };
+}
+
 function getLecturerActivities() {
   try {
     return JSON.parse(localStorage.getItem(AUDIFI_LECTURER_ACTIVITY_KEY) || '[]');
@@ -114,7 +179,7 @@ function renderLecturerActivityList(containerId, options = {}) {
   if (!container) return;
 
   const limit = options.limit || 12;
-  const items = getLecturerActivities().slice(0, limit);
+  const items = (options.items != null ? options.items : getLecturerActivities()).slice(0, limit);
 
   if (items.length === 0) {
     container.innerHTML = `<p class="text-sm text-gray-500">${options.emptyMessage || 'No lecturer activity yet.'}</p>`;
@@ -190,16 +255,37 @@ function setupLoginPage() {
     }
   }
 
-  loginBtn.addEventListener('click', (event) => {
-    event.preventDefault(); // Prevent form submission
-    if (studentInput.value.length === 8 && passwordInput.value.trim() !== '') {
-      // Check if it's a staff login (starts with STAFF-)
-      if (studentInput.value.toUpperCase().startsWith('STAFF-')) {
-        localStorage.setItem('audiFiStaffName', 'Dr. John Doe'); // Mock staff name
-        window.location.href = 'staffpage.html';
-      } else {
-        window.location.href = 'studentpage.html';
+  loginBtn.addEventListener('click', async (event) => {
+    event.preventDefault();
+    if (studentInput.value.length !== 8 || !passwordInput.value.trim()) return;
+    loginBtn.disabled = true;
+    try {
+      const body = {
+        institutional_id: studentInput.value.trim(),
+        password: passwordInput.value,
+      };
+      const data = await fetch(`${API_BASE}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }).then(async (r) => {
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(apiDetailMessage(j.detail) || r.statusText);
+        return j;
+      });
+      setToken(data.access_token);
+      if (data.user && data.user.role !== 'student') {
+        clearToken();
+        alert('This portal is for students. Use Lecturer Login for staff access.');
+        loginBtn.disabled = false;
+        checkFormValidity();
+        return;
       }
+      window.location.href = 'studentpage.html';
+    } catch (e) {
+      alert(e.message || 'Login failed');
+      loginBtn.disabled = false;
+      checkFormValidity();
     }
   });
 
@@ -520,26 +606,46 @@ function setupStudentReportIssueModal() {
     const categoryLabel =
       categoryEl && categoryEl.selectedOptions[0] ? categoryEl.selectedOptions[0].textContent.trim() : category;
 
-    persistStudentIssueReport({
-      reporterName: localStorage.getItem('audiFiProfileName') || 'Anonymous',
-      category,
-      categoryLabel,
-      location,
-      description,
-      contactEmail,
-    });
-
-    closeModal();
-    alert('Thank you. Your report has been saved for this demo. A full build would send it to campus support.');
+    (async () => {
+      try {
+        if (getToken()) {
+          await authFetch('/issue-reports', {
+            method: 'POST',
+            body: JSON.stringify({
+              category,
+              location: location || null,
+              description,
+              contact_email: contactEmail || null,
+            }),
+          });
+          closeModal();
+          alert('Thank you. Your report has been submitted to campus support.');
+        } else {
+          persistStudentIssueReport({
+            reporterName: localStorage.getItem('audiFiProfileName') || 'Anonymous',
+            category,
+            categoryLabel,
+            location,
+            description,
+            contactEmail,
+          });
+          closeModal();
+          alert('Thank you. Your report has been saved for this demo. A full build would send it to campus support.');
+        }
+      } catch (err) {
+        alert(err.message || 'Could not submit report.');
+      }
+    })();
   });
 }
 
-function refreshStudentDiscoveryHeader() {
+function refreshStudentDiscoveryHeader(me) {
   const welcomeTitle = document.getElementById('welcomeTitle');
   const studentNameEl = document.getElementById('studentName');
   const programEl = document.getElementById('studentProgramLine');
   const avatarEl = document.getElementById('studentAvatarInitials');
-  const studentName = localStorage.getItem('audiFiProfileName') || 'Kwame Mensah';
+  const studentName =
+    (me && me.display_name) || localStorage.getItem('audiFiProfileName') || 'Kwame Mensah';
   const firstName = studentName.split(' ')[0] || 'Student';
   const initials = studentName
     .split(' ')
@@ -547,27 +653,52 @@ function refreshStudentDiscoveryHeader() {
     .join('')
     .slice(0, 2)
     .toUpperCase();
-  const program = localStorage.getItem('audiFiStudentProgram') || 'BSc Information Systems';
+  const program =
+    (me && me.program) || localStorage.getItem('audiFiStudentProgram') || 'BSc Information Systems';
   if (welcomeTitle) welcomeTitle.textContent = `Welcome back, ${firstName}`;
   if (studentNameEl) studentNameEl.textContent = studentName;
   if (programEl) programEl.textContent = program;
   if (avatarEl) avatarEl.textContent = initials;
 }
 
-function setupStudentDiscoveryPortal() {
+async function setupStudentDiscoveryPortal() {
   const hallsGrid = document.getElementById('hallsGrid');
-  if (!hallsGrid) return; // Not the discovery dashboard page
+  if (!hallsGrid) return;
 
-  const halls = [
-    { name: 'Block A - Main Hall', status: 'Occupied', seats: 420, location: 'Commercial Area', event: 'BIT 205 Lecture', wifi: true, projector: true, ac: true, live: true },
-    { name: 'Block B - Annex', status: 'Booked - Pending', seats: 280, location: 'Engineering Strip', event: 'BSBA 351 (Starts 10:30)', wifi: true, projector: true, ac: false, live: false },
-    { name: 'FF 03', status: 'Available', seats: 120, location: 'Business School Wing', event: 'No active event', wifi: true, projector: false, ac: true, live: false },
-    { name: 'TF 01', status: 'Occupied', seats: 95, location: 'North Academic Block', event: 'ISD 359 Lab', wifi: true, projector: true, ac: false, live: true },
-    { name: 'Block C - Basement', status: 'Available', seats: 210, location: 'Commercial Area', event: 'Next: AI 150 (1:00 PM)', wifi: true, projector: true, ac: true, live: false },
-    { name: 'SF 05', status: 'Booked - Pending', seats: 140, location: 'Central Walkway', event: 'MKT 214 (Awaiting check-in)', wifi: false, projector: true, ac: true, live: false },
-  ];
+  if (!getToken()) {
+    window.location.href = 'home_page.html';
+    return;
+  }
 
-  refreshStudentDiscoveryHeader();
+  let halls = [];
+  let studentMe = null;
+
+  try {
+    studentMe = await authFetch('/auth/me');
+    if (studentMe.role !== 'student') {
+      window.location.href = 'staffpage.html';
+      return;
+    }
+    const apiHalls = await authFetch('/halls');
+    halls = apiHalls.map((h) => ({
+      name: h.name,
+      status: h.status,
+      seats: h.capacity,
+      location: h.campus_zone,
+      event: h.current_or_next_event,
+      wifi: h.has_wifi,
+      projector: h.has_projector,
+      ac: h.has_ac,
+      live: h.live,
+    }));
+  } catch (e) {
+    alert(e.message || 'Could not load dashboard');
+    clearToken();
+    window.location.href = 'home_page.html';
+    return;
+  }
+
+  refreshStudentDiscoveryHeader(studentMe);
 
   function getStatusStyles(status) {
     if (status === 'Occupied') return 'bg-rose-100 text-rose-700 border border-rose-200';
@@ -584,7 +715,9 @@ function setupStudentDiscoveryPortal() {
     if (!liveCount) return;
     hallsGrid.innerHTML = '';
 
-    const compact = localStorage.getItem('audiFiStudentCompactCards') === 'true';
+    const prefSnap = (studentMe && studentMe.preferences) || {};
+    const compact =
+      prefSnap.compact_cards === true || localStorage.getItem('audiFiStudentCompactCards') === 'true';
     const cardPad = compact ? 'p-4' : 'p-5';
     const mbMain = compact ? 'mb-3' : 'mb-4';
 
@@ -641,6 +774,7 @@ function setupStudentDiscoveryPortal() {
   const signOutBtn = document.getElementById('signOutBtn');
   if (signOutBtn) {
     signOutBtn.addEventListener('click', () => {
+      clearToken();
       window.location.href = 'home_page.html';
     });
   }
@@ -648,6 +782,26 @@ function setupStudentDiscoveryPortal() {
   renderHalls();
   updateLastUpdated();
   setInterval(updateLastUpdated, 15000);
+
+  async function loadStudentActivityFeed() {
+    try {
+      const rows = await authFetch('/activity?limit=8');
+      const items = rows.map(mapApiActivityToEntry);
+      renderLecturerActivityList('studentLecturerActivityList', {
+        limit: 8,
+        items,
+        emptyMessage:
+          'No updates yet. When lecturers book halls, cancel bookings, or call off classes in the staff portal, they will show up here.',
+      });
+    } catch {
+      renderLecturerActivityList('studentLecturerActivityList', {
+        limit: 8,
+        items: [],
+        emptyMessage: 'Could not load lecturer activity.',
+      });
+    }
+  }
+  await loadStudentActivityFeed();
 
   function setupStudentPreferencesModal() {
     const modal = document.getElementById('studentPreferencesModal');
@@ -685,22 +839,23 @@ function setupStudentDiscoveryPortal() {
 
     function openModal() {
       setStudentPrefTab('profile');
+      const p = (studentMe && studentMe.preferences) || {};
       document.getElementById('studentPrefDisplayName').value =
-        localStorage.getItem('audiFiProfileName') || 'Kwame Mensah';
+        (studentMe && studentMe.display_name) || localStorage.getItem('audiFiProfileName') || '';
       document.getElementById('studentPrefProgram').value =
-        localStorage.getItem('audiFiStudentProgram') || '';
+        (studentMe && studentMe.program) || localStorage.getItem('audiFiStudentProgram') || '';
       document.getElementById('studentPrefCampusZone').value =
-        localStorage.getItem('audiFiStudentCampusZone') || '';
+        p.campus_zone || localStorage.getItem('audiFiStudentCampusZone') || '';
       document.getElementById('studentPrefCompactCards').checked =
-        localStorage.getItem('audiFiStudentCompactCards') === 'true';
+        p.compact_cards === true || localStorage.getItem('audiFiStudentCompactCards') === 'true';
       document.getElementById('studentPrefNotifyEmail').value =
-        localStorage.getItem('audiFiStudentNotifyEmail') || '';
+        p.notify_email || localStorage.getItem('audiFiStudentNotifyEmail') || '';
       document.getElementById('studentPrefNotifyHalls').checked =
-        localStorage.getItem('audiFiStudentNotifyHalls') === 'true';
+        p.notify_halls === true || localStorage.getItem('audiFiStudentNotifyHalls') === 'true';
       document.getElementById('studentPrefNotifyLecturers').checked =
-        localStorage.getItem('audiFiStudentNotifyLecturers') === 'true';
+        p.notify_lecturers === true || localStorage.getItem('audiFiStudentNotifyLecturers') === 'true';
       document.getElementById('studentPrefNotifyProduct').checked =
-        localStorage.getItem('audiFiStudentNotifyProduct') === 'true';
+        p.notify_product === true || localStorage.getItem('audiFiStudentNotifyProduct') === 'true';
       clearPasswordFields();
       modal.classList.remove('hidden');
       modal.setAttribute('aria-hidden', 'false');
@@ -713,36 +868,40 @@ function setupStudentDiscoveryPortal() {
     }
 
     function savePreferences() {
-      const name = document.getElementById('studentPrefDisplayName').value.trim();
-      const program = document.getElementById('studentPrefProgram').value.trim();
-      const zone = document.getElementById('studentPrefCampusZone').value;
-      const compact = document.getElementById('studentPrefCompactCards').checked;
-      const email = document.getElementById('studentPrefNotifyEmail').value.trim();
-      const nHalls = document.getElementById('studentPrefNotifyHalls').checked;
-      const nLect = document.getElementById('studentPrefNotifyLecturers').checked;
-      const nProd = document.getElementById('studentPrefNotifyProduct').checked;
-
-      if (name) localStorage.setItem('audiFiProfileName', name);
-      else localStorage.removeItem('audiFiProfileName');
-
-      if (program) localStorage.setItem('audiFiStudentProgram', program);
-      else localStorage.removeItem('audiFiStudentProgram');
-
-      if (zone) localStorage.setItem('audiFiStudentCampusZone', zone);
-      else localStorage.removeItem('audiFiStudentCampusZone');
-
-      localStorage.setItem('audiFiStudentCompactCards', compact ? 'true' : 'false');
-
-      if (email) localStorage.setItem('audiFiStudentNotifyEmail', email);
-      else localStorage.removeItem('audiFiStudentNotifyEmail');
-
-      localStorage.setItem('audiFiStudentNotifyHalls', nHalls ? 'true' : 'false');
-      localStorage.setItem('audiFiStudentNotifyLecturers', nLect ? 'true' : 'false');
-      localStorage.setItem('audiFiStudentNotifyProduct', nProd ? 'true' : 'false');
-
-      refreshStudentDiscoveryHeader();
-      renderHalls();
-      closeModal();
+      (async () => {
+        const name = document.getElementById('studentPrefDisplayName').value.trim();
+        const program = document.getElementById('studentPrefProgram').value.trim();
+        const zone = document.getElementById('studentPrefCampusZone').value;
+        const compact = document.getElementById('studentPrefCompactCards').checked;
+        const email = document.getElementById('studentPrefNotifyEmail').value.trim();
+        const nHalls = document.getElementById('studentPrefNotifyHalls').checked;
+        const nLect = document.getElementById('studentPrefNotifyLecturers').checked;
+        const nProd = document.getElementById('studentPrefNotifyProduct').checked;
+        const prev = (studentMe && studentMe.preferences) || {};
+        try {
+          studentMe = await authFetch('/auth/me', {
+            method: 'PATCH',
+            body: JSON.stringify({
+              display_name: name || undefined,
+              program: program || null,
+              preferences: {
+                ...prev,
+                campus_zone: zone || null,
+                compact_cards: compact,
+                notify_email: email || null,
+                notify_halls: nHalls,
+                notify_lecturers: nLect,
+                notify_product: nProd,
+              },
+            }),
+          });
+          refreshStudentDiscoveryHeader(studentMe);
+          renderHalls();
+          closeModal();
+        } catch (err) {
+          alert(err.message || 'Could not save preferences');
+        }
+      })();
     }
 
     openBtn.addEventListener('click', openModal);
@@ -765,32 +924,8 @@ function setupStudentDiscoveryPortal() {
     if (passwordForm) {
       passwordForm.addEventListener('submit', (e) => {
         e.preventDefault();
-        const current = document.getElementById('studentPrefCurrentPassword').value;
-        const newPass = document.getElementById('studentPrefNewPassword').value;
-        const confirmPass = document.getElementById('studentPrefConfirmPassword').value;
-        const existing = localStorage.getItem(DEMO_PW_KEY);
-
-        if (existing && current !== existing) {
-          alert('Current password is incorrect.');
-          return;
-        }
-
-        if (newPass.length < 8) {
-          alert('New password must be at least 8 characters.');
-          return;
-        }
-
-        if (newPass !== confirmPass) {
-          alert('New password and confirmation do not match.');
-          return;
-        }
-
-        localStorage.setItem(DEMO_PW_KEY, newPass);
-        localStorage.setItem('audiFiStudentPasswordUpdatedAt', new Date().toISOString());
+        alert('Password changes are not available via the API in this build. Use your seeded demo password or reset via database admin.');
         passwordForm.reset();
-        alert(
-          'Password updated for this demo only. Use your institutional account when AudiFi connects to SSO.',
-        );
       });
     }
   }
@@ -803,78 +938,64 @@ function setupStudentDiscoveryPortal() {
 
   if (findNearestBtn) {
     findNearestBtn.addEventListener('click', () => {
-      const availableHalls = halls.filter((hall) => hall.status === 'Available');
-      localStorage.setItem('audiFiAvailableHalls', JSON.stringify(availableHalls));
       window.location.href = 'available_halls.html';
     });
   }
-
-  renderLecturerActivityList('studentLecturerActivityList', {
-    limit: 8,
-    emptyMessage:
-      'No updates yet. When lecturers book halls, cancel bookings, or call off classes in the staff portal, they will show up here.',
-  });
 
   if (window.lucide && typeof window.lucide.createIcons === 'function') {
     window.lucide.createIcons();
   }
 }
 
-function setupStaffPortal() {
+async function setupStaffPortal() {
   const staffSearch = document.getElementById('auditoriumSelect');
-  if (!staffSearch) return; // Not the staff portal page
+  if (!staffSearch) return;
 
-  // ---------- Mock data (edit here) ----------
+  if (!getToken()) {
+    window.location.href = 'lecturer_login.html';
+    return;
+  }
+
+  let staffMe = null;
+  let hallRows = [];
+  let courseRows = [];
+  let timeSlotRows = [];
+  let bookings = [];
+
+  try {
+    staffMe = await authFetch('/auth/me');
+    if (staffMe.role !== 'staff') {
+      window.location.href = 'studentpage.html';
+      return;
+    }
+    const results = await Promise.all([
+      authFetch('/courses'),
+      authFetch('/time-slots'),
+      authFetch('/halls'),
+      authFetch('/bookings/me'),
+    ]);
+    courseRows = results[0];
+    timeSlotRows = results[1];
+    hallRows = results[2];
+    bookings = results[3];
+  } catch (e) {
+    alert(e.message || 'Could not load staff portal');
+    clearToken();
+    window.location.href = 'lecturer_login.html';
+    return;
+  }
+
   const staffData = {
-    name: 'Dr. John Doe',
-    id: 'STAFF-001',
+    name: staffMe.display_name,
+    id: staffMe.institutional_id,
   };
-
-  const auditoriums = [
-    'Block A - Main',
-    'Block A - Basement',
-    'Block B - Main',
-    'Block B - Basement',
-    'Block C - Main',
-    'Block C - Basement',
-    'Block D - Main',
-    'Block D - Basement',
-    'Block E - Main',
-    'Block E - Basement',
-    'Block F - Main',
-    'Block F - Basement',
-    'FF 01', 'FF 02', 'FF 03', 'FF 04', 'FF 05',
-    'SF 01', 'SF 02', 'SF 03', 'SF 04', 'SF 05',
-    'TF 01', 'TF 02', 'TF 03', 'TF 04', 'TF 05',
-  ];
-
-  const courses = [
-    'AI 150 FUNDAMENTALS OF RESPONSIBLE AI FOR ALL',
-    'BSBA 351 BUSINESS LAW',
-    'BSBA 353 BUSINESS RESEARCH METHODS',
-    'BSBA 361 BUILDING PROFESSIONAL SKILLS',
-    'ISD 331 INTRODUCTION TO BUSINESS ANALYTICS',
-    'ISD 355 DATABASE MANAGEMENT FOR BUSINESS',
-    'ISD 357 INTRODUCTION TO OPERATIONS MANAGEMENT',
-    'ISD 359 INTRODUCTION TO PROGRAMMING',
-  ];
-
-  const timeSlots = ['8:00 AM – 10:00 AM', '10:30 AM – 12:30 PM', '1:00 PM – 3:00 PM', '3:30 PM – 5:30 PM'];
-
-  let bookings = JSON.parse(localStorage.getItem('audiFiBookings') || '[]');
-  // ------------------------------------------
 
   const staffNameEl = document.getElementById('staffName');
   const staffInfoEl = document.getElementById('staffInfo');
 
   function updateStaffSection() {
-    const savedName = localStorage.getItem('audiFiStaffName');
-    if (savedName) {
-      staffData.name = savedName;
-    }
-
     if (staffNameEl) staffNameEl.textContent = staffData.name;
-    const dept = localStorage.getItem('audiFiStaffDepartment');
+    const dept = staffMe.department;
     if (staffInfoEl) {
       staffInfoEl.textContent = dept
         ? `Welcome back, ${staffData.name}! · ${dept}`
@@ -887,16 +1008,167 @@ function setupStaffPortal() {
     }
   }
 
-  function populateSelect(selectId, options) {
+  function fillSelect(selectId, rows, valueKey, labelKey) {
     const select = document.getElementById(selectId);
     if (!select) return;
     select.innerHTML = '';
-    options.forEach((option) => {
+    rows.forEach((row) => {
       const opt = document.createElement('option');
-      opt.value = option;
-      opt.textContent = option;
+      opt.value = row[valueKey];
+      opt.textContent = row[labelKey];
       select.appendChild(opt);
     });
+  }
+
+  async function loadStaffActivityFeed() {
+    try {
+      const rows = await authFetch('/activity?limit=12');
+      const items = rows.map(mapApiActivityToEntry);
+      renderLecturerActivityList('lecturerActivityList', {
+        limit: 12,
+        items,
+        emptyMessage:
+          'No lecturer activity yet. Book a hall, cancel a reservation, or call off a class to populate this log.',
+      });
+    } catch {
+      renderLecturerActivityList('lecturerActivityList', {
+        limit: 12,
+        items: [],
+        emptyMessage: 'Could not load activity.',
+      });
+    }
+  }
+
+  async function refreshStaffAnalytics() {
+    const usageStatsEl = document.getElementById('usageStats');
+    const activityLogEl = document.getElementById('activityLog');
+    let data;
+    try {
+      data = await authFetch('/staff/analytics');
+    } catch {
+      if (usageStatsEl) usageStatsEl.innerHTML = '<p class="text-sm text-gray-500">Could not load analytics.</p>';
+      return;
+    }
+
+    const todayStr = data.today_str;
+    const activeReservations = data.active_reservations;
+    const todaySessions = data.today_sessions;
+    const weekSessions = data.week_sessions;
+    const distinctHalls = data.distinct_halls;
+    const catalogHalls = data.catalog_halls;
+    const hallCoveragePct = data.hall_coverage_pct;
+    const acts7dLen = data.lecturer_events_7d;
+    const keypad30d = data.keypad_checkins_30d;
+    const bookedLogged30d = data.new_bookings_logged_30d;
+    const cancelledLogged30d = data.released_cancelled_30d;
+    const callOffs30d = data.classes_called_off_30d;
+    const releaseRateDisplay = data.release_rate_display;
+    const releaseRateHint = data.release_rate_hint;
+    const releaseWarn = data.release_rate_warn;
+
+    const statCard = (label, value, hint, accent = 'gray') => {
+      const accents = {
+        gray: 'border-gray-100 bg-gray-50/90',
+        emerald: 'border-emerald-100 bg-emerald-50/50',
+        amber: 'border-amber-100 bg-amber-50/50',
+        slate: 'border-slate-200 bg-slate-50/80',
+      };
+      const box = accents[accent] || accents.gray;
+      return `
+          <div class="rounded-xl border ${box} p-4">
+            <p class="text-[11px] font-semibold uppercase tracking-wider text-gray-500">${label}</p>
+            <p class="mt-2 text-2xl font-bold tabular-nums tracking-tight text-gray-900">${value}</p>
+            <p class="mt-1 text-xs leading-snug text-gray-600">${hint}</p>
+          </div>`;
+    };
+
+    if (usageStatsEl) {
+      usageStatsEl.innerHTML = `
+        <div>
+          <p class="mb-2 text-xs font-medium text-gray-700">Schedule load</p>
+          <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            ${statCard(
+              'Active reservations',
+              activeReservations,
+              'Future or current sessions on the roster',
+              'slate',
+            )}
+            ${statCard("Today's sessions", todaySessions, `Bookings dated ${todayStr}`, 'emerald')}
+            ${statCard(
+              'This week (Mon–Sun)',
+              weekSessions,
+              'Sessions with dates in the current calendar week',
+              'gray',
+            )}
+            ${statCard(
+              'Distinct halls in use',
+              distinctHalls,
+              `${hallCoveragePct}% of ${catalogHalls} bookable spaces`,
+              'gray',
+            )}
+            ${statCard(
+              'Lecturer events (7 days)',
+              acts7dLen,
+              'All logged actions: bookings, releases, call-offs',
+              'gray',
+            )}
+            ${statCard(
+              'Keypad check-ins (30 days)',
+              keypad30d,
+              'Increases when hall keypad confirms attendance',
+              'emerald',
+            )}
+          </div>
+        </div>
+        <div>
+          <p class="mb-2 text-xs font-medium text-gray-700">Operations & reliability</p>
+          <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            ${statCard(
+              'New bookings logged (30d)',
+              bookedLogged30d,
+              'Captures from staff portal submissions',
+              'emerald',
+            )}
+            ${statCard(
+              'Released / cancelled (30d)',
+              cancelledLogged30d,
+              'Reservations removed before session',
+              'gray',
+            )}
+            ${statCard('Classes called off (30d)', callOffs30d, 'Public-facing cancellations', 'amber')}
+            ${statCard(
+              'Release pressure index',
+              releaseRateDisplay,
+              releaseRateHint,
+              releaseWarn ? 'amber' : 'gray',
+            )}
+          </div>
+        </div>
+        <p class="text-[11px] text-gray-400">Numbers merge your current booking roster with the lecturer activity log and refresh after each change.</p>
+      `;
+    }
+
+    if (activityLogEl) {
+      activityLogEl.innerHTML = '';
+      const recent = bookings.slice(-5).reverse();
+      if (recent.length === 0) {
+        activityLogEl.innerHTML = '<p class="text-sm text-gray-500">No recent activity.</p>';
+      } else {
+        recent.forEach((booking) => {
+          const activityItem = document.createElement('div');
+          activityItem.className = 'flex items-center gap-3 py-2';
+          activityItem.innerHTML = `
+            <div class="h-2 w-2 rounded-full bg-knustGold"></div>
+            <div class="text-sm">
+              <span class="font-medium text-gray-900">${booking.hall_name}</span>
+              <span class="text-gray-500">booked for ${booking.course_title}</span>
+            </div>
+            <div class="ml-auto text-xs text-gray-400">${booking.booking_date}</div>
+          `;
+          activityLogEl.appendChild(activityItem);
+        });
+      }
+    }
   }
 
   function renderBookings() {
@@ -910,22 +1182,26 @@ function setupStaffPortal() {
       return;
     }
 
-    bookings.forEach((booking, index) => {
+    bookings.forEach((booking) => {
       const card = document.createElement('article');
       card.className = 'rounded-2xl border border-gray-200 bg-white p-5 shadow-sm';
+      const hallName = booking.hall_name;
+      const courseTitle = booking.course_title;
+      const dateStr = booking.booking_date;
+      const timeLbl = booking.time_slot_label;
 
       card.innerHTML = `
         <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <h4 class="text-lg font-semibold text-gray-800">${booking.auditorium}</h4>
-            <p class="text-sm text-gray-500 mt-1">${booking.course}</p>
-            <p class="text-sm text-gray-500">${booking.date} • ${booking.time}</p>
+            <h4 class="text-lg font-semibold text-gray-800">${hallName}</h4>
+            <p class="text-sm text-gray-500 mt-1">${courseTitle}</p>
+            <p class="text-sm text-gray-500">${dateStr} • ${timeLbl}</p>
           </div>
           <div class="flex flex-shrink-0 flex-wrap gap-2">
-            <button type="button" class="call-off-class-btn rounded-lg border border-amber-200 bg-amber-50 px-3 py-1 text-sm font-medium text-amber-900 hover:bg-amber-100" data-index="${index}">
+            <button type="button" class="call-off-class-btn rounded-lg border border-amber-200 bg-amber-50 px-3 py-1 text-sm font-medium text-amber-900 hover:bg-amber-100" data-booking-id="${booking.id}">
               Call off class
             </button>
-            <button type="button" class="cancel-booking-btn rounded-lg border border-red-200 bg-red-50 px-3 py-1 text-sm font-medium text-red-700 hover:bg-red-100" data-index="${index}">
+            <button type="button" class="cancel-booking-btn rounded-lg border border-red-200 bg-red-50 px-3 py-1 text-sm font-medium text-red-700 hover:bg-red-100" data-booking-id="${booking.id}">
               Cancel booking
             </button>
           </div>
@@ -935,43 +1211,43 @@ function setupStaffPortal() {
       container.appendChild(card);
     });
 
-    function removeBookingAt(index, activityType) {
-      const booking = bookings[index];
+    async function removeBookingById(bookingId, activityType) {
+      const booking = bookings.find((b) => b.id === bookingId);
       if (!booking) return;
-      if (localStorage.getItem('audiFiStaffConfirmCancel') === 'true') {
+      const prefs = staffMe.preferences || {};
+      if (prefs.confirm_before_cancel === true) {
         const isCallOff = activityType === 'class_called_off';
         const msg = isCallOff
-          ? `Call off class for “${booking.course}” at ${booking.auditorium}? Students will see updated hall status.`
-          : `Cancel booking for “${booking.course}” at ${booking.auditorium}?`;
+          ? `Call off class for “${booking.course_title}” at ${booking.hall_name}? Students will see updated hall status.`
+          : `Cancel booking for “${booking.course_title}” at ${booking.hall_name}?`;
         if (!window.confirm(msg)) return;
       }
-      appendLecturerActivity({
-        type: activityType,
-        lecturerName: staffData.name,
-        auditorium: booking.auditorium,
-        course: booking.course,
-        date: booking.date,
-        time: booking.time,
-      });
-      bookings.splice(index, 1);
-      localStorage.setItem('audiFiBookings', JSON.stringify(bookings));
-      renderBookings();
-      renderAnalytics();
+      try {
+        const path =
+          activityType === 'class_called_off'
+            ? `/bookings/${bookingId}/call-off`
+            : `/bookings/${bookingId}/cancel`;
+        await authFetch(path, { method: 'POST', body: '{}' });
+        bookings = await authFetch('/bookings/me');
+        renderBookings();
+        await refreshStaffAnalytics();
+        await loadStaffActivityFeed();
+      } catch (err) {
+        alert(err.message || 'Could not update booking');
+      }
     }
 
     document.querySelectorAll('.cancel-booking-btn').forEach((btn) => {
       btn.addEventListener('click', (e) => {
         const el = e.target.closest('.cancel-booking-btn');
-        const index = parseInt(el.dataset.index, 10);
-        removeBookingAt(index, 'booking_cancelled');
+        removeBookingById(el.dataset.bookingId, 'booking_cancelled');
       });
     });
 
     document.querySelectorAll('.call-off-class-btn').forEach((btn) => {
       btn.addEventListener('click', (e) => {
         const el = e.target.closest('.call-off-class-btn');
-        const index = parseInt(el.dataset.index, 10);
-        removeBookingAt(index, 'class_called_off');
+        removeBookingById(el.dataset.bookingId, 'class_called_off');
       });
     });
   }
@@ -983,39 +1259,46 @@ function setupStaffPortal() {
     form.addEventListener('submit', (e) => {
       e.preventDefault();
 
-      const auditorium = document.getElementById('auditoriumSelect').value;
-      const course = document.getElementById('courseSelect').value;
+      const hallId = document.getElementById('auditoriumSelect').value;
+      const courseId = document.getElementById('courseSelect').value;
       const date = document.getElementById('dateInput').value;
-      const time = document.getElementById('timeSelect').value;
+      const timeSlotId = document.getElementById('timeSelect').value;
 
-      if (!auditorium || !course || !date || !time) {
+      if (!hallId || !courseId || !date || !timeSlotId) {
         alert('Please fill in all fields.');
         return;
       }
 
-      const pastCheck = validateBookingNotInPast(date, time);
+      const slot = timeSlotRows.find((t) => t.id === timeSlotId);
+      const timeLabel = slot ? slot.label : '';
+      const pastCheck = validateBookingNotInPast(date, timeLabel);
       if (!pastCheck.ok) {
         alert(pastCheck.message);
         return;
       }
 
-      const newBooking = { auditorium, course, date, time };
-      bookings.push(newBooking);
-      localStorage.setItem('audiFiBookings', JSON.stringify(bookings));
-
-      appendLecturerActivity({
-        type: 'booked',
-        lecturerName: staffData.name,
-        auditorium,
-        course,
-        date,
-        time,
-      });
-
-      renderBookings();
-      renderAnalytics();
-      form.reset();
-      alert('Booking confirmed!');
+      (async () => {
+        try {
+          await authFetch('/bookings', {
+            method: 'POST',
+            body: JSON.stringify({
+              hall_id: hallId,
+              course_id: courseId,
+              booking_date: date,
+              time_slot_id: timeSlotId,
+            }),
+          });
+          bookings = await authFetch('/bookings/me');
+          renderBookings();
+          await refreshStaffAnalytics();
+          await loadStaffActivityFeed();
+          form.reset();
+          applyDefaultTimeToBookingForm();
+          alert('Booking confirmed!');
+        } catch (err) {
+          alert(err.message || 'Booking failed');
+        }
+      })();
     });
 
     document.getElementById('cancelBooking').addEventListener('click', () => {
@@ -1036,9 +1319,10 @@ function setupStaffPortal() {
 
   function applyDefaultTimeToBookingForm() {
     const ts = document.getElementById('timeSelect');
-    const def = localStorage.getItem('audiFiStaffDefaultTime');
-    if (ts && def && timeSlots.includes(def)) {
-      ts.value = def;
+    const prefs = staffMe.preferences || {};
+    const defId = prefs.default_time_slot_id;
+    if (ts && defId && timeSlotRows.some((t) => t.id === defId)) {
+      ts.value = defId;
     }
   }
 
@@ -1051,21 +1335,21 @@ function setupStaffPortal() {
     const saveBtn = document.getElementById('staffSettingsSave');
     const defaultTimeSelect = document.getElementById('settingsDefaultTime');
     const passwordForm = document.getElementById('staffPasswordForm');
-    const DEMO_PW_KEY = 'audiFiDemoStaffPortalPassword';
 
     if (!modal || !openBtn || !defaultTimeSelect) return;
 
     function syncDefaultTimeOptions() {
-      const saved = localStorage.getItem('audiFiStaffDefaultTime') || '';
+      const prefs = staffMe.preferences || {};
+      const savedId = prefs.default_time_slot_id || '';
       defaultTimeSelect.innerHTML = '<option value="">No default (choose each booking)</option>';
-      timeSlots.forEach((slot) => {
+      timeSlotRows.forEach((slot) => {
         const opt = document.createElement('option');
-        opt.value = slot;
-        opt.textContent = slot;
+        opt.value = slot.id;
+        opt.textContent = slot.label;
         defaultTimeSelect.appendChild(opt);
       });
-      if (saved && timeSlots.includes(saved)) {
-        defaultTimeSelect.value = saved;
+      if (savedId && timeSlotRows.some((t) => t.id === savedId)) {
+        defaultTimeSelect.value = savedId;
       }
     }
 
@@ -1101,20 +1385,21 @@ function setupStaffPortal() {
       const deptEl = document.getElementById('settingsDepartment');
       const emailEl = document.getElementById('settingsNotifyEmail');
       const confirmEl = document.getElementById('settingsConfirmCancel');
+      const p = staffMe.preferences || {};
       if (nameEl) {
-        nameEl.value = localStorage.getItem('audiFiStaffName') || staffData.name || '';
+        nameEl.value = staffMe.display_name || '';
       }
-      if (deptEl) deptEl.value = localStorage.getItem('audiFiStaffDepartment') || '';
-      if (emailEl) emailEl.value = localStorage.getItem('audiFiStaffNotifyEmail') || '';
+      if (deptEl) deptEl.value = staffMe.department || '';
+      if (emailEl) emailEl.value = p.notify_email || '';
       if (confirmEl) {
-        confirmEl.checked = localStorage.getItem('audiFiStaffConfirmCancel') === 'true';
+        confirmEl.checked = p.confirm_before_cancel === true;
       }
       const nb = document.getElementById('settingsNotifyBookingConfirm');
       const nh = document.getElementById('settingsNotifyHallAlerts');
       const np = document.getElementById('settingsNotifyProductNews');
-      if (nb) nb.checked = localStorage.getItem('audiFiStaffNotifyBookingConfirm') === 'true';
-      if (nh) nh.checked = localStorage.getItem('audiFiStaffNotifyHallAlerts') === 'true';
-      if (np) np.checked = localStorage.getItem('audiFiStaffNotifyProductNews') === 'true';
+      if (nb) nb.checked = p.notify_booking_confirm === true;
+      if (nh) nh.checked = p.notify_hall_alerts === true;
+      if (np) np.checked = p.notify_product_news === true;
       clearPasswordFields();
       modal.classList.remove('hidden');
       modal.setAttribute('aria-hidden', 'false');
@@ -1127,42 +1412,41 @@ function setupStaffPortal() {
     }
 
     function savePreferences() {
-      const name = document.getElementById('settingsDisplayName').value.trim();
-      const dept = document.getElementById('settingsDepartment').value.trim();
-      const email = document.getElementById('settingsNotifyEmail').value.trim();
-      const defTime = defaultTimeSelect.value;
-      const confirmCancel = document.getElementById('settingsConfirmCancel').checked;
-      const notifyBooking = document.getElementById('settingsNotifyBookingConfirm').checked;
-      const notifyHall = document.getElementById('settingsNotifyHallAlerts').checked;
-      const notifyProduct = document.getElementById('settingsNotifyProductNews').checked;
-
-      if (name) {
-        localStorage.setItem('audiFiStaffName', name);
-        staffData.name = name;
-      } else {
-        localStorage.removeItem('audiFiStaffName');
-        staffData.name = 'Dr. John Doe';
-      }
-
-      if (dept) localStorage.setItem('audiFiStaffDepartment', dept);
-      else localStorage.removeItem('audiFiStaffDepartment');
-
-      if (email) localStorage.setItem('audiFiStaffNotifyEmail', email);
-      else localStorage.removeItem('audiFiStaffNotifyEmail');
-
-      if (defTime && timeSlots.includes(defTime)) {
-        localStorage.setItem('audiFiStaffDefaultTime', defTime);
-      } else {
-        localStorage.removeItem('audiFiStaffDefaultTime');
-      }
-
-      localStorage.setItem('audiFiStaffConfirmCancel', confirmCancel ? 'true' : 'false');
-      localStorage.setItem('audiFiStaffNotifyBookingConfirm', notifyBooking ? 'true' : 'false');
-      localStorage.setItem('audiFiStaffNotifyHallAlerts', notifyHall ? 'true' : 'false');
-      localStorage.setItem('audiFiStaffNotifyProductNews', notifyProduct ? 'true' : 'false');
-
-      updateStaffSection();
-      applyDefaultTimeToBookingForm();
+      (async () => {
+        const name = document.getElementById('settingsDisplayName').value.trim();
+        const dept = document.getElementById('settingsDepartment').value.trim();
+        const email = document.getElementById('settingsNotifyEmail').value.trim();
+        const defTimeId = defaultTimeSelect.value;
+        const confirmCancel = document.getElementById('settingsConfirmCancel').checked;
+        const notifyBooking = document.getElementById('settingsNotifyBookingConfirm').checked;
+        const notifyHall = document.getElementById('settingsNotifyHallAlerts').checked;
+        const notifyProduct = document.getElementById('settingsNotifyProductNews').checked;
+        const prev = staffMe.preferences || {};
+        try {
+          staffMe = await authFetch('/auth/me', {
+            method: 'PATCH',
+            body: JSON.stringify({
+              display_name: name || undefined,
+              department: dept || null,
+              preferences: {
+                ...prev,
+                default_time_slot_id: defTimeId || null,
+                confirm_before_cancel: confirmCancel,
+                notify_email: email || null,
+                notify_booking_confirm: notifyBooking,
+                notify_hall_alerts: notifyHall,
+                notify_product_news: notifyProduct,
+              },
+            }),
+          });
+          staffData.name = staffMe.display_name;
+          updateStaffSection();
+          applyDefaultTimeToBookingForm();
+          closeModal();
+        } catch (err) {
+          alert(err.message || 'Could not save settings');
+        }
+      })();
     }
 
     openBtn.addEventListener('click', openModal);
@@ -1180,7 +1464,6 @@ function setupStaffPortal() {
     if (saveBtn) {
       saveBtn.addEventListener('click', () => {
         savePreferences();
-        closeModal();
       });
     }
 
@@ -1191,231 +1474,30 @@ function setupStaffPortal() {
     if (passwordForm) {
       passwordForm.addEventListener('submit', (e) => {
         e.preventDefault();
-        const current = document.getElementById('settingsCurrentPassword').value;
-        const newPass = document.getElementById('settingsNewPassword').value;
-        const confirmPass = document.getElementById('settingsConfirmPassword').value;
-        const existing = localStorage.getItem(DEMO_PW_KEY);
-
-        if (existing && current !== existing) {
-          alert('Current password is incorrect.');
-          return;
-        }
-
-        if (newPass.length < 8) {
-          alert('New password must be at least 8 characters.');
-          return;
-        }
-
-        if (newPass !== confirmPass) {
-          alert('New password and confirmation do not match.');
-          return;
-        }
-
-        localStorage.setItem(DEMO_PW_KEY, newPass);
-        localStorage.setItem('audiFiStaffPasswordUpdatedAt', new Date().toISOString());
+        alert('Password changes are not available via the API in this build. Use your seeded demo password or reset via database admin.');
         passwordForm.reset();
-        alert(
-          'Password updated for this demo build only. Production AudiFi would use KNUST SSO and never store raw passwords in the browser.',
-        );
       });
     }
-  }
-
-  function renderAnalytics() {
-    const usageStatsEl = document.getElementById('usageStats');
-    const activityLogEl = document.getElementById('activityLog');
-
-    if (usageStatsEl) {
-      const todayStr = new Date().toISOString().split('T')[0];
-      const startOfCalendarWeek = (d) => {
-        const x = new Date(d);
-        const day = x.getDay();
-        const diff = x.getDate() - day + (day === 0 ? -6 : 1);
-        x.setDate(diff);
-        x.setHours(0, 0, 0, 0);
-        return x;
-      };
-      const endOfCalendarWeek = (start) => {
-        const e = new Date(start);
-        e.setDate(e.getDate() + 7);
-        return e;
-      };
-      const weekStart = startOfCalendarWeek(new Date());
-      const weekEnd = endOfCalendarWeek(weekStart);
-
-      const isInThisCalendarWeek = (dateStr) => {
-        const bd = new Date(`${dateStr}T12:00:00`);
-        return bd >= weekStart && bd < weekEnd;
-      };
-
-      const activeReservations = bookings.length;
-      const todaySessions = bookings.filter((b) => b.date === todayStr).length;
-      const weekSessions = bookings.filter((b) => isInThisCalendarWeek(b.date)).length;
-      const distinctHalls = new Set(bookings.map((b) => b.auditorium)).size;
-      const catalogHalls = auditoriums.length;
-      const hallCoveragePct =
-        catalogHalls === 0 ? 0 : Math.round((distinctHalls / catalogHalls) * 100);
-
-      const nowMs = Date.now();
-      const ms7d = 7 * 24 * 60 * 60 * 1000;
-      const ms30d = 30 * 24 * 60 * 60 * 1000;
-      const activities = getLecturerActivities();
-      const acts7d = activities.filter((a) => nowMs - new Date(a.at).getTime() <= ms7d);
-      const acts30d = activities.filter((a) => nowMs - new Date(a.at).getTime() <= ms30d);
-
-      const bookedLogged30d = acts30d.filter((a) => a.type === 'booked').length;
-      const cancelledLogged30d = acts30d.filter((a) => a.type === 'booking_cancelled').length;
-      const callOffs30d = acts30d.filter((a) => a.type === 'class_called_off').length;
-      const keypad30d = acts30d.filter((a) => a.type === 'checked_in_keypad').length;
-
-      const releaseRateDisplay =
-        bookedLogged30d === 0
-          ? '—'
-          : `${Math.round(((cancelledLogged30d + callOffs30d) / bookedLogged30d) * 100)}%`;
-      const releaseRateHint =
-        bookedLogged30d === 0
-          ? 'No booking events in the last 30 days to benchmark.'
-          : 'Cancel + call-off events as a share of new bookings logged (directional only).';
-
-      const statCard = (label, value, hint, accent = 'gray') => {
-        const accents = {
-          gray: 'border-gray-100 bg-gray-50/90',
-          emerald: 'border-emerald-100 bg-emerald-50/50',
-          amber: 'border-amber-100 bg-amber-50/50',
-          slate: 'border-slate-200 bg-slate-50/80',
-        };
-        const box = accents[accent] || accents.gray;
-        return `
-          <div class="rounded-xl border ${box} p-4">
-            <p class="text-[11px] font-semibold uppercase tracking-wider text-gray-500">${label}</p>
-            <p class="mt-2 text-2xl font-bold tabular-nums tracking-tight text-gray-900">${value}</p>
-            <p class="mt-1 text-xs leading-snug text-gray-600">${hint}</p>
-          </div>`;
-      };
-
-      usageStatsEl.innerHTML = `
-        <div>
-          <p class="mb-2 text-xs font-medium text-gray-700">Schedule load</p>
-          <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            ${statCard(
-              'Active reservations',
-              activeReservations,
-              'Future or current sessions on the roster',
-              'slate',
-            )}
-            ${statCard(
-              "Today's sessions",
-              todaySessions,
-              `Bookings dated ${todayStr}`,
-              'emerald',
-            )}
-            ${statCard(
-              'This week (Mon–Sun)',
-              weekSessions,
-              'Sessions with dates in the current calendar week',
-              'gray',
-            )}
-            ${statCard(
-              'Distinct halls in use',
-              distinctHalls,
-              `${hallCoveragePct}% of ${catalogHalls} bookable spaces`,
-              'gray',
-            )}
-            ${statCard(
-              'Lecturer events (7 days)',
-              acts7d.length,
-              'All logged actions: bookings, releases, call-offs',
-              'gray',
-            )}
-            ${statCard(
-              'Keypad check-ins (30 days)',
-              keypad30d,
-              'Increases when hall keypad confirms attendance',
-              'emerald',
-            )}
-          </div>
-        </div>
-        <div>
-          <p class="mb-2 text-xs font-medium text-gray-700">Operations & reliability</p>
-          <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            ${statCard(
-              'New bookings logged (30d)',
-              bookedLogged30d,
-              'Captures from staff portal submissions',
-              'emerald',
-            )}
-            ${statCard(
-              'Released / cancelled (30d)',
-              cancelledLogged30d,
-              'Reservations removed before session',
-              'gray',
-            )}
-            ${statCard(
-              'Classes called off (30d)',
-              callOffs30d,
-              'Public-facing cancellations',
-              'amber',
-            )}
-            ${statCard(
-              'Release pressure index',
-              releaseRateDisplay,
-              releaseRateHint,
-              bookedLogged30d > 0 && (cancelledLogged30d + callOffs30d) / bookedLogged30d > 0.35
-                ? 'amber'
-                : 'gray',
-            )}
-          </div>
-        </div>
-        <p class="text-[11px] text-gray-400">Numbers merge your current booking roster with the lecturer activity log and refresh after each change.</p>
-      `;
-    }
-
-    if (activityLogEl) {
-      const recentBookings = bookings.slice(-5).reverse(); // Last 5 bookings
-      activityLogEl.innerHTML = '';
-
-      if (recentBookings.length === 0) {
-        activityLogEl.innerHTML = '<p class="text-sm text-gray-500">No recent activity.</p>';
-      } else {
-        recentBookings.forEach((booking) => {
-          const activityItem = document.createElement('div');
-          activityItem.className = 'flex items-center gap-3 py-2';
-          activityItem.innerHTML = `
-            <div class="h-2 w-2 rounded-full bg-knustGold"></div>
-            <div class="text-sm">
-              <span class="font-medium text-gray-900">${booking.auditorium}</span>
-              <span class="text-gray-500">booked for ${booking.course}</span>
-            </div>
-            <div class="ml-auto text-xs text-gray-400">${booking.date}</div>
-          `;
-          activityLogEl.appendChild(activityItem);
-        });
-      }
-    }
-
-    renderLecturerActivityList('lecturerActivityList', {
-      limit: 12,
-      emptyMessage:
-        'No lecturer activity yet. Book a hall, cancel a reservation, or call off a class to populate this log.',
-    });
   }
 
   // Sign out button
   const signOutBtn = document.getElementById('signOutBtn');
   if (signOutBtn) {
     signOutBtn.addEventListener('click', () => {
+      clearToken();
       window.location.href = 'home_page.html';
     });
   }
 
-  function initStaffPortal() {
+  async function initStaffPortal() {
     updateStaffSection();
-    populateSelect('auditoriumSelect', auditoriums);
-    populateSelect('courseSelect', courses);
-    populateSelect('timeSelect', timeSlots);
+    fillSelect('auditoriumSelect', hallRows, 'id', 'name');
+    fillSelect('courseSelect', courseRows, 'id', 'title');
+    fillSelect('timeSelect', timeSlotRows, 'id', 'label');
     applyDefaultTimeToBookingForm();
     renderBookings();
-    renderAnalytics();
+    await refreshStaffAnalytics();
+    await loadStaffActivityFeed();
     setupBookingForm();
     setupSidebarToggle();
     setupStaffSettings();
@@ -1464,7 +1546,7 @@ function setupStaffPortal() {
     }
   }
 
-  initStaffPortal();
+  void initStaffPortal();
 }
 
 function setupLecturerLoginPage() {
@@ -1490,10 +1572,37 @@ function setupLecturerLoginPage() {
     }
   }
 
-  loginBtn.addEventListener('click', (event) => {
-    event.preventDefault(); // Prevent form submission
-    if (lecturerInput.value.length === 8 && passwordInput.value.trim() !== '') {
-      window.location.href = 'staffpage.html'; // Redirect to lecturer dashboard (placeholder)
+  loginBtn.addEventListener('click', async (event) => {
+    event.preventDefault();
+    if (lecturerInput.value.length !== 8 || !passwordInput.value.trim()) return;
+    loginBtn.disabled = true;
+    try {
+      const body = {
+        institutional_id: lecturerInput.value.trim(),
+        password: passwordInput.value,
+      };
+      const data = await fetch(`${API_BASE}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }).then(async (r) => {
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(apiDetailMessage(j.detail) || r.statusText);
+        return j;
+      });
+      setToken(data.access_token);
+      if (data.user && data.user.role !== 'staff') {
+        clearToken();
+        alert('Staff access only. Use the student login page for your account.');
+        loginBtn.disabled = false;
+        checkFormValidity();
+        return;
+      }
+      window.location.href = 'staffpage.html';
+    } catch (e) {
+      alert(e.message || 'Login failed');
+      loginBtn.disabled = false;
+      checkFormValidity();
     }
   });
 
@@ -1514,14 +1623,30 @@ function setupLecturerLoginPage() {
   }
 }
 
-function setupAvailableHallsPage() {
+async function setupAvailableHallsPage() {
   const hallsList = document.getElementById('availableHallsList');
-  if (!hallsList) return; // Not the available halls page
+  if (!hallsList) return;
 
   const countEl = document.getElementById('availableHallsCount');
   const backBtn = document.getElementById('backToDashboardBtn');
-  const stored = localStorage.getItem('audiFiAvailableHalls');
-  const availableHalls = stored ? JSON.parse(stored) : [];
+
+  if (!getToken()) {
+    window.location.href = 'home_page.html';
+    return;
+  }
+
+  let availableHalls = [];
+  try {
+    availableHalls = await authFetch('/halls?available_now=true');
+  } catch (e) {
+    hallsList.innerHTML = `<p class="text-sm text-red-600">${e.message || 'Could not load halls.'}</p>`;
+    if (backBtn) {
+      backBtn.addEventListener('click', () => {
+        window.location.href = 'studentpage.html';
+      });
+    }
+    return;
+  }
 
   hallsList.innerHTML = '';
 
@@ -1544,15 +1669,15 @@ function setupAvailableHallsPage() {
         <div class="flex items-start justify-between gap-3">
           <div>
             <h3 class="text-base font-semibold text-gray-900">${hall.name}</h3>
-            <p class="text-xs text-gray-500">${hall.location}</p>
+            <p class="text-xs text-gray-500">${hall.campus_zone}</p>
           </div>
           <span class="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700">
             Available
           </span>
         </div>
         <div class="mt-3 space-y-1 text-sm text-gray-700">
-          <p><span class="font-medium">Seats:</span> ${hall.seats}</p>
-          <p><span class="font-medium">Current/Next Event:</span> ${hall.event}</p>
+          <p><span class="font-medium">Seats:</span> ${hall.capacity}</p>
+          <p><span class="font-medium">Current/Next Event:</span> ${hall.current_or_next_event}</p>
         </div>
       `;
       hallsList.appendChild(card);
@@ -1570,7 +1695,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupLoginPage();
   setupLecturerLoginPage();
   setupStudentPortal();
-  setupStudentDiscoveryPortal();
-  setupStaffPortal();
-  setupAvailableHallsPage();
+  void setupStudentDiscoveryPortal();
+  void setupStaffPortal();
+  void setupAvailableHallsPage();
 });

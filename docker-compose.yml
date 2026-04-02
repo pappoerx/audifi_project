@@ -1,0 +1,14 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: audifi
+      POSTGRES_PASSWORD: audifi
+      POSTGRES_DB: audifi
+    ports:
+      - "5432:5432"
+    volumes:
+      - audifi_pg_data:/var/lib/postgresql/data
+
+volumes:
+  audifi_pg_data:
