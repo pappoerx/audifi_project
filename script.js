@@ -3,6 +3,120 @@ const AUDIFI_ACTIVITY_MAX = 40;
 
 const API_BASE = typeof window !== 'undefined' && window.AUDIFI_API_BASE ? window.AUDIFI_API_BASE : 'http://127.0.0.1:8000';
 const AUDIFI_TOKEN_KEY = 'audiFiAccessToken';
+const TOASTR_CSS_CDN = 'https://cdnjs.cloudflare.com/ajax/libs/toastr.js/latest/toastr.min.css';
+const TOASTR_JS_CDN = 'https://cdnjs.cloudflare.com/ajax/libs/toastr.js/latest/toastr.min.js';
+
+function ensureToastrLoaded() {
+  if (typeof document === 'undefined') return;
+  if (!document.querySelector('link[data-audifi-toastr]')) {
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = TOASTR_CSS_CDN;
+    link.dataset.audifiToastr = 'true';
+    document.head.appendChild(link);
+  }
+  if (!document.querySelector('script[data-audifi-toastr]')) {
+    const script = document.createElement('script');
+    script.src = TOASTR_JS_CDN;
+    script.dataset.audifiToastr = 'true';
+    document.head.appendChild(script);
+  }
+}
+
+function ensureFallbackToastHost() {
+  if (typeof document === 'undefined') return null;
+  let host = document.getElementById('audifi-toast-host');
+  if (host) return host;
+  host = document.createElement('div');
+  host.id = 'audifi-toast-host';
+  host.style.position = 'fixed';
+  host.style.top = '14px';
+  host.style.right = '14px';
+  host.style.zIndex = '99999';
+  host.style.display = 'flex';
+  host.style.flexDirection = 'column';
+  host.style.gap = '8px';
+  host.style.maxWidth = '360px';
+  document.body.appendChild(host);
+  return host;
+}
+
+function showFallbackToast(message, level = 'info') {
+  const host = ensureFallbackToastHost();
+  if (!host) return;
+  const tone = {
+    success: { bg: '#ecfdf5', border: '#86efac', text: '#166534' },
+    error: { bg: '#fef2f2', border: '#fca5a5', text: '#991b1b' },
+    warning: { bg: '#fffbeb', border: '#fcd34d', text: '#92400e' },
+    info: { bg: '#eff6ff', border: '#93c5fd', text: '#1e3a8a' },
+  }[level] || { bg: '#f8fafc', border: '#cbd5e1', text: '#0f172a' };
+
+  const item = document.createElement('div');
+  item.style.background = tone.bg;
+  item.style.border = `1px solid ${tone.border}`;
+  item.style.color = tone.text;
+  item.style.borderRadius = '10px';
+  item.style.padding = '10px 12px';
+  item.style.fontSize = '13px';
+  item.style.fontWeight = '600';
+  item.style.boxShadow = '0 8px 20px rgba(15,23,42,0.12)';
+  item.style.opacity = '0';
+  item.style.transform = 'translateY(-4px)';
+  item.style.transition = 'all .18s ease';
+  item.textContent = String(message || '').trim();
+  host.appendChild(item);
+  requestAnimationFrame(() => {
+    item.style.opacity = '1';
+    item.style.transform = 'translateY(0)';
+  });
+
+  const ttl = level === 'error' ? 4600 : 2800;
+  window.setTimeout(() => {
+    item.style.opacity = '0';
+    item.style.transform = 'translateY(-4px)';
+    window.setTimeout(() => item.remove(), 180);
+  }, ttl);
+}
+
+function notify(message, level = 'info') {
+  const text = String(message || '').trim();
+  if (!text) return;
+  if (typeof window !== 'undefined' && window.toastr && typeof window.toastr[level] === 'function') {
+    try {
+      window.toastr.options = {
+        closeButton: true,
+        progressBar: true,
+        newestOnTop: true,
+        positionClass: 'toast-top-right',
+        timeOut: level === 'error' ? '4500' : '2800',
+        extendedTimeOut: '1200',
+        preventDuplicates: true,
+      };
+      window.toastr[level](text);
+      return;
+    } catch {
+      // Toastr can fail if its dependencies are missing; do not break app flows.
+    }
+  }
+  showFallbackToast(text, level);
+  console[level === 'error' ? 'error' : 'log'](text);
+}
+
+function notifySuccess(message) {
+  notify(message, 'success');
+}
+
+function notifyError(message) {
+  notify(message, 'error');
+}
+
+function notifyInfo(message) {
+  notify(message, 'info');
+}
+
+function notifyWarning(message) {
+  notify(message, 'warning');
+}
 
 function getToken() {
   return localStorage.getItem(AUDIFI_TOKEN_KEY);
@@ -15,6 +129,8 @@ function setToken(token) {
 function clearToken() {
   localStorage.removeItem(AUDIFI_TOKEN_KEY);
 }
+
+ensureToastrLoaded();
 
 function apiDetailMessage(detail) {
   if (detail == null) return 'Request failed';
@@ -174,6 +290,61 @@ function validateBookingNotInPast(dateStr, timeSlotLabel) {
   return { ok: true };
 }
 
+function validateBookingTimes(dateStr, startTime, endTime) {
+  const now = new Date();
+  const [y, mo, d] = dateStr.split('-').map((x) => parseInt(x, 10));
+  if (Number.isNaN(y) || Number.isNaN(mo) || Number.isNaN(d)) {
+    return { ok: false, message: 'Invalid booking date.' };
+  }
+  if (!startTime || !endTime) {
+    return { ok: false, message: 'Please choose both start and end times.' };
+  }
+  const st = String(startTime).match(/^(\d{1,2}):(\d{2})$/);
+  const et = String(endTime).match(/^(\d{1,2}):(\d{2})$/);
+  if (!st || !et) {
+    return { ok: false, message: 'Invalid time format. Use HH:MM.' };
+  }
+  const startMin = Number(st[1]) * 60 + Number(st[2]);
+  const endMin = Number(et[1]) * 60 + Number(et[2]);
+  if (endMin <= startMin) {
+    return { ok: false, message: 'End time must be later than start time.' };
+  }
+
+  const dayEnd = new Date(y, mo - 1, d, 23, 59, 59, 999);
+  if (dayEnd.getTime() < now.getTime()) {
+    return {
+      ok: false,
+      message: 'You cannot book for a date that has already passed. Choose today or a future date.',
+    };
+  }
+  const slotStart = new Date(y, mo - 1, d, Number(st[1]), Number(st[2]), 0, 0);
+  if (slotStart.getTime() <= now.getTime()) {
+    return {
+      ok: false,
+      message: 'This selected time has already started or passed. Choose a later time.',
+    };
+  }
+  return { ok: true };
+}
+
+function yesNoBadge(label, on) {
+  const tone = on
+    ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+    : 'border-gray-200 bg-gray-50 text-gray-600';
+  return `<span class="inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${tone}">${label}: ${on ? 'Yes' : 'No'}</span>`;
+}
+
+function inferHallTypeLabel(hall) {
+  const apiType = String(hall && hall.type ? hall.type : '').trim();
+  if (apiType) return apiType;
+  const n = String(hall && hall.name ? hall.name : '').toUpperCase();
+  if (n.includes('LAB')) return 'Lab';
+  if (n.includes('BLK') || n.includes('BLOCK') || n.includes('CLASS') || n.includes('AY') || n.includes('FF') || n.includes('SF') || n.includes('TF')) {
+    return 'Classroom';
+  }
+  return 'Lecture Hall';
+}
+
 function renderLecturerActivityList(containerId, options = {}) {
   const container = document.getElementById(containerId);
   if (!container) return;
@@ -276,14 +447,14 @@ function setupLoginPage() {
       setToken(data.access_token);
       if (data.user && data.user.role !== 'student') {
         clearToken();
-        alert('This portal is for students. Use Lecturer Login for staff access.');
+        notifyWarning('This portal is for students. Use Lecturer Login for staff access.');
         loginBtn.disabled = false;
         checkFormValidity();
         return;
       }
-      window.location.href = 'studentpage.html';
+      window.location.href = 'student/dashboard.html';
     } catch (e) {
-      alert(e.message || 'Login failed');
+      notifyError(e.message || 'Login failed');
       loginBtn.disabled = false;
       checkFormValidity();
     }
@@ -301,237 +472,9 @@ function setupLoginPage() {
   if (forgotPasswordLink) {
     forgotPasswordLink.addEventListener('click', (event) => {
       event.preventDefault();
-      alert('Password reset is not connected yet. Please contact AudiFi support.');
+      notifyInfo('Password reset is not connected yet. Please contact AudiFi support.');
     });
   }
-}
-
-function setupStudentPortal() {
-  const hallSearch = document.getElementById('hallSearch');
-  if (!hallSearch) return; // Not the student portal page
-
-  // ---------- Mock data (edit here) ----------
-  const studentData = {
-    name: 'Kwame Mensah',
-    id: 'STU-001234',
-  };
-
-  // ---------- Hall data (edit here) ----------
-  const blocks = ['A', 'B', 'C', 'D', 'E', 'F'];
-
-  const floorConfigs = [
-    { prefix: 'FF', label: 'First Floor' },
-    { prefix: 'SF', label: 'Second Floor' },
-    { prefix: 'TF', label: 'Third Floor' },
-  ];
-
-  const halls = [];
-
-  // Blocks (Main + Basement)
-  blocks.forEach((block) => {
-    ['Main', 'Basement'].forEach((level) => {
-      halls.push({
-        id: `block-${block}-${level.toLowerCase()}`,
-        name: `Block ${block} - ${level}`,
-        status: halls.length % 2 === 0 ? 'Available' : 'Ongoing Lecture',
-        capacity: `${(400 + blocks.indexOf(block) * 20).toFixed(0)} Seats`,
-      });
-    });
-  });
-
-  // Floors (FF / SF / TF rooms 01-05)
-  floorConfigs.forEach(({ prefix }) => {
-    for (let i = 1; i <= 5; i += 1) {
-      const room = `${prefix} ${String(i).padStart(2, '0')}`;
-      halls.push({
-        id: `${prefix}-${String(i).padStart(2, '0')}`,
-        name: room,
-        status: halls.length % 2 === 0 ? 'Available' : 'Ongoing Lecture',
-        capacity: `${120 + i * 10} Seats`,
-      });
-    }
-  });
-  // ------------------------------------------
-
-  const recentSearches = ['Block A - Main', 'FF 01', 'Block C - Basement'];
-  const favoritedHalls = ['Block B - Main', 'TF 03'];
-
-  const courses = [
-    'AI 150 FUNDAMENTALS OF RESPONSIBLE AI FOR ALL',
-    'BSBA 351 BUSINESS LAW',
-    'BSBA 353 BUSINESS RESEARCH METHODS',
-    'BSBA 361 BUILDING PROFESSIONAL SKILLS',
-    'ISD 331 INTRODUCTION TO BUSINESS ANALYTICS',
-    'ISD 355 DATABASE MANAGEMENT FOR BUSINESS',
-    'ISD 357 INTRODUCTION TO OPERATIONS MANAGEMENT',
-    'ISD 359 INTRODUCTION TO PROGRAMMING',
-  ];
-
-  const timeSlots = ['8:00 AM – 10:00 AM', '10:30 AM – 12:30 PM', '1:00 PM – 3:00 PM', '3:30 PM – 5:30 PM'];
-
-  // ------------------------------------------
-
-  const profileNameEl = document.getElementById('profileName');
-  const studentInfoEl = document.getElementById('studentInfo');
-
-  function updateProfileSection() {
-    const savedName = localStorage.getItem('audiFiProfileName');
-    if (savedName) {
-      studentData.name = savedName;
-    }
-
-    if (profileNameEl) profileNameEl.textContent = studentData.name;
-    if (studentInfoEl) studentInfoEl.textContent = `${studentData.name} • ${studentData.id}`;
-  }
-
-  // Modal helpers
-  const modal = document.getElementById('courseModal');
-  const modalHallNameEl = document.getElementById('modalHallName');
-  const modalCourseEl = document.getElementById('modalCourse');
-  const modalTimeEl = document.getElementById('modalTime');
-  const modalClose = document.getElementById('modalClose');
-  const modalCancel = document.getElementById('modalCancel');
-
-  function closeCourseModal() {
-    if (!modal) return;
-    modal.classList.add('hidden');
-  }
-
-  function openCourseModal(hallName) {
-    if (!modal) return;
-
-    if (modalHallNameEl) modalHallNameEl.textContent = hallName;
-
-    // Pick a random course to represent the "current" session
-    if (modalCourseEl) {
-      const randomCourse = courses[Math.floor(Math.random() * courses.length)];
-      modalCourseEl.textContent = randomCourse;
-    }
-
-    // Pick a time slot from the fixed schedule
-    if (modalTimeEl) {
-      const randomSlot = timeSlots[Math.floor(Math.random() * timeSlots.length)];
-      modalTimeEl.textContent = randomSlot;
-    }
-
-    modal.classList.remove('hidden');
-  }
-
-  if (modalClose) modalClose.addEventListener('click', closeCourseModal);
-  if (modalCancel) modalCancel.addEventListener('click', closeCourseModal);
-  if (modal) {
-    modal.addEventListener('click', (event) => {
-      if (event.target === modal) closeCourseModal();
-    });
-  }
-
-  // Sign out button
-  const signOutBtn = document.getElementById('signOutBtn');
-  if (signOutBtn) {
-    signOutBtn.addEventListener('click', () => {
-      window.location.href = 'home_page.html';
-    });
-  }
-
-  function createStatusBadge(status) {
-    const isAvailable = status.toLowerCase().includes('available');
-    const base = 'inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold';
-    const color = isAvailable ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700';
-    return `<span class="${base} ${color}">${status}</span>`;
-  }
-
-  function renderHallsList(items) {
-    const container = document.getElementById('hallsGrid');
-    if (!container) return;
-
-    container.innerHTML = '';
-
-    items.forEach((hall) => {
-      const card = document.createElement('article');
-      card.className = 'rounded-2xl border border-gray-200 bg-white p-5 shadow-sm transition hover:shadow-md';
-
-      card.innerHTML = `
-        <div class="flex items-start justify-between gap-4">
-          <div>
-            <h4 class="text-lg font-semibold text-gray-800">${hall.name}</h4>
-            <p class="text-sm text-gray-500 mt-1">${hall.capacity}</p>
-          </div>
-          <div class="shrink-0">${createStatusBadge(hall.status)}</div>
-        </div>
-        <div class="mt-5 flex items-center justify-between gap-3">
-          <span class="text-sm font-medium text-gray-600">Room ID: ${hall.id.toUpperCase()}</span>
-          <button type="button" class="hall-schedule-btn rounded-lg bg-knustGold px-4 py-2 text-sm font-semibold text-black shadow-sm transition hover:bg-yellow-500">
-            View Schedule
-          </button>
-        </div>
-      `;
-
-      // Only show modal for block cards (Main/Basement blocks)
-      if (hall.name.startsWith('Block')) {
-        card.classList.add('cursor-pointer');
-        card.addEventListener('click', () => openCourseModal(hall.name));
-      }
-
-      const scheduleBtn = card.querySelector('.hall-schedule-btn');
-      if (scheduleBtn) {
-        scheduleBtn.addEventListener('click', (event) => {
-          event.stopPropagation();
-          openCourseModal(hall.name);
-        });
-      }
-
-      container.appendChild(card);
-    });
-  }
-
-  function renderQuickLinks(listId, items) {
-    const container = document.getElementById(listId);
-    if (!container) return;
-
-    container.innerHTML = '';
-    items.forEach((item) => {
-      const li = document.createElement('li');
-      li.className = 'flex items-center justify-between rounded-lg border border-gray-100 bg-gray-50 px-4 py-2';
-      li.innerHTML = `
-        <span>${item}</span>
-        <button type="button" class="text-xs font-semibold text-knustGold hover:text-yellow-700">View</button>
-      `;
-      container.appendChild(li);
-    });
-  }
-
-  function setupSearch() {
-    const input = document.getElementById('hallSearch');
-    if (!input) return;
-
-    input.addEventListener('input', () => {
-      const query = input.value.trim().toLowerCase();
-      const filtered = halls.filter((hall) => hall.name.toLowerCase().includes(query));
-      renderHallsList(filtered);
-    });
-  }
-
-  function setupSidebarToggle() {
-    const sidebar = document.getElementById('sidebar');
-    const toggle = document.getElementById('menuToggle');
-
-    if (!sidebar || !toggle) return;
-
-    toggle.addEventListener('click', () => {
-      sidebar.classList.toggle('hidden');
-    });
-  }
-
-  function initStudentPortal() {
-    updateProfileSection();
-    renderHallsList(halls);
-    renderQuickLinks('recentSearches', recentSearches);
-    renderQuickLinks('favoriteHalls', favoritedHalls);
-    setupSearch();
-    setupSidebarToggle();
-  }
-
-  initStudentPortal();
 }
 
 const AUDIFI_STUDENT_ISSUES_KEY = 'audiFiStudentIssueReports';
@@ -550,12 +493,13 @@ function persistStudentIssueReport(payload) {
 function setupStudentReportIssueModal() {
   const modal = document.getElementById('studentReportIssueModal');
   const openBtn = document.getElementById('studentReportIssueBtn');
+  const openSidebarBtn = document.getElementById('studentReportIssueBtnSidebar');
   const shell = document.getElementById('studentReportIssueShell');
   const closeBtn = document.getElementById('studentReportIssueClose');
   const cancelBtn = document.getElementById('studentReportIssueCancel');
   const form = document.getElementById('studentReportIssueForm');
 
-  if (!modal || !openBtn || !form) return;
+  if (!modal || (!openBtn && !openSidebarBtn) || !form) return;
 
   function openModal() {
     const savedEmail = localStorage.getItem('audiFiStudentNotifyEmail') || '';
@@ -572,7 +516,8 @@ function setupStudentReportIssueModal() {
     form.reset();
   }
 
-  openBtn.addEventListener('click', openModal);
+  if (openBtn) openBtn.addEventListener('click', openModal);
+  if (openSidebarBtn) openSidebarBtn.addEventListener('click', openModal);
   if (shell) {
     shell.addEventListener('click', (e) => {
       if (e.target === shell) closeModal();
@@ -594,12 +539,12 @@ function setupStudentReportIssueModal() {
     const contactEmail = document.getElementById('reportIssueContact').value.trim();
 
     if (!category) {
-      alert('Please choose an issue type.');
+      notifyWarning('Please choose an issue type.');
       return;
     }
 
     if (description.length < 10) {
-      alert('Please describe the problem in at least 10 characters.');
+      notifyWarning('Please describe the problem in at least 10 characters.');
       return;
     }
 
@@ -619,7 +564,7 @@ function setupStudentReportIssueModal() {
             }),
           });
           closeModal();
-          alert('Thank you. Your report has been submitted to campus support.');
+          notifySuccess('Thank you. Your report has been submitted to campus support.');
         } else {
           persistStudentIssueReport({
             reporterName: localStorage.getItem('audiFiProfileName') || 'Anonymous',
@@ -630,10 +575,10 @@ function setupStudentReportIssueModal() {
             contactEmail,
           });
           closeModal();
-          alert('Thank you. Your report has been saved for this demo. A full build would send it to campus support.');
+          notifySuccess('Thank you. Your report has been saved for this demo. A full build would send it to campus support.');
         }
       } catch (err) {
-        alert(err.message || 'Could not submit report.');
+        notifyError(err.message || 'Could not submit report.');
       }
     })();
   });
@@ -666,7 +611,7 @@ async function setupStudentDiscoveryPortal() {
   if (!hallsGrid) return;
 
   if (!getToken()) {
-    window.location.href = 'home_page.html';
+    window.location.href = '/home_page.html';
     return;
   }
 
@@ -676,7 +621,7 @@ async function setupStudentDiscoveryPortal() {
   try {
     studentMe = await authFetch('/auth/me');
     if (studentMe.role !== 'student') {
-      window.location.href = 'staffpage.html';
+      window.location.href = '/staff/dashboard.html';
       return;
     }
     const apiHalls = await authFetch('/halls');
@@ -692,9 +637,9 @@ async function setupStudentDiscoveryPortal() {
       live: h.live,
     }));
   } catch (e) {
-    alert(e.message || 'Could not load dashboard');
+    notifyError(e.message || 'Could not load dashboard');
     clearToken();
-    window.location.href = 'home_page.html';
+    window.location.href = '/home_page.html';
     return;
   }
 
@@ -775,7 +720,7 @@ async function setupStudentDiscoveryPortal() {
   if (signOutBtn) {
     signOutBtn.addEventListener('click', () => {
       clearToken();
-      window.location.href = 'home_page.html';
+      window.location.href = '/home_page.html';
     });
   }
 
@@ -899,7 +844,7 @@ async function setupStudentDiscoveryPortal() {
           renderHalls();
           closeModal();
         } catch (err) {
-          alert(err.message || 'Could not save preferences');
+          notifyError(err.message || 'Could not save preferences');
         }
       })();
     }
@@ -924,7 +869,7 @@ async function setupStudentDiscoveryPortal() {
     if (passwordForm) {
       passwordForm.addEventListener('submit', (e) => {
         e.preventDefault();
-        alert('Password changes are not available via the API in this build. Use your seeded demo password or reset via database admin.');
+        notifyInfo('Password changes are not available via the API in this build. Use your seeded demo password or reset via database admin.');
         passwordForm.reset();
       });
     }
@@ -938,7 +883,7 @@ async function setupStudentDiscoveryPortal() {
 
   if (findNearestBtn) {
     findNearestBtn.addEventListener('click', () => {
-      window.location.href = 'available_halls.html';
+    window.location.href = '/student/available-halls.html';
     });
   }
 
@@ -948,11 +893,13 @@ async function setupStudentDiscoveryPortal() {
 }
 
 async function setupStaffPortal() {
-  const staffSearch = document.getElementById('auditoriumSelect');
-  if (!staffSearch) return;
+  const hasBookingForm = Boolean(document.getElementById('auditoriumSelect'));
+  const hasDashboardWidgets = Boolean(document.getElementById('usageStats') || document.getElementById('lecturerActivityList'));
+  const hasBookingsList = Boolean(document.getElementById('bookingsList'));
+  if (!hasBookingForm && !hasDashboardWidgets && !hasBookingsList) return;
 
   if (!getToken()) {
-    window.location.href = 'lecturer_login.html';
+    window.location.href = '/staff/login.html';
     return;
   }
 
@@ -961,11 +908,12 @@ async function setupStaffPortal() {
   let courseRows = [];
   let timeSlotRows = [];
   let bookings = [];
+  const bookingActionInFlight = new Set();
 
   try {
     staffMe = await authFetch('/auth/me');
     if (staffMe.role !== 'staff') {
-      window.location.href = 'studentpage.html';
+      window.location.href = '/student/dashboard.html';
       return;
     }
     const results = await Promise.all([
@@ -979,9 +927,9 @@ async function setupStaffPortal() {
     hallRows = results[2];
     bookings = results[3];
   } catch (e) {
-    alert(e.message || 'Could not load staff portal');
+    notifyError(e.message || 'Could not load staff portal');
     clearToken();
-    window.location.href = 'lecturer_login.html';
+    window.location.href = '/staff/login.html';
     return;
   }
 
@@ -1021,26 +969,108 @@ async function setupStaffPortal() {
   }
 
   async function loadStaffActivityFeed() {
+    const feedEl = document.getElementById('lecturerActivityList');
+    if (feedEl) {
+      feedEl.innerHTML = '<p class="text-sm text-gray-500">Loading recent activity...</p>';
+    }
     try {
-      const rows = await authFetch('/activity?limit=12');
+      const rows = await authFetch('/activity?limit=5');
       const items = rows.map(mapApiActivityToEntry);
       renderLecturerActivityList('lecturerActivityList', {
-        limit: 12,
+        limit: 5,
         items,
         emptyMessage:
           'No lecturer activity yet. Book a hall, cancel a reservation, or call off a class to populate this log.',
       });
     } catch {
       renderLecturerActivityList('lecturerActivityList', {
-        limit: 12,
+        limit: 5,
         items: [],
         emptyMessage: 'Could not load activity.',
       });
     }
   }
 
+  async function loadFixedTimetable() {
+    const listEl = document.getElementById('fixedTimetableList');
+    if (!listEl) return;
+    try {
+      const rows = await authFetch('/staff/fixed-timetable');
+      if (!Array.isArray(rows) || rows.length === 0) {
+        listEl.innerHTML = '<p class="text-sm text-gray-500">No fixed timetable records found yet.</p>';
+        return;
+      }
+      const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+      const now = new Date();
+      const nowDow = (now.getDay() + 6) % 7; // JS Sun=0 -> Mon=0
+      const nowMinutes = now.getHours() * 60 + now.getMinutes();
+
+      function toMinutes(hhmm) {
+        const m = String(hhmm || '').match(/^(\d{1,2}):(\d{2})$/);
+        if (!m) return null;
+        return Number(m[1]) * 60 + Number(m[2]);
+      }
+
+      const ranked = rows
+        .map((row) => {
+          const dow = Number(row.day_of_week);
+          const startMin = toMinutes(row.start_time);
+          const endMin = toMinutes(row.end_time);
+          const dayDiff = Number.isNaN(dow) ? 99 : (dow - nowDow + 7) % 7;
+          let status = 'upcoming';
+          let score = dayDiff * 1440 + (startMin ?? 0) - nowMinutes;
+          if (dayDiff === 0 && startMin != null && endMin != null) {
+            if (nowMinutes >= startMin && nowMinutes < endMin) {
+              status = 'live';
+              score = -10000 + (endMin - nowMinutes); // always top while in progress
+            } else if (nowMinutes >= endMin) {
+              status = 'recent';
+              score = 100000 + (nowMinutes - endMin); // push ended classes lower
+            }
+          }
+          return { ...row, __status: status, __score: score };
+        })
+        .sort((a, b) => a.__score - b.__score);
+
+      const top = ranked.slice(0, 5);
+      listEl.innerHTML =
+        top
+          .map((row) => {
+            const dayName = dayNames[Number(row.day_of_week)] || `Day ${row.day_of_week}`;
+            const statusChip =
+              row.__status === 'live'
+                ? '<span class="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">Happening now</span>'
+                : row.__status === 'recent'
+                  ? '<span class="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700">Recently ended</span>'
+                  : '<span class="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700">Upcoming</span>';
+            return `
+            <article class="rounded-xl border border-gray-100 bg-gray-50/80 p-4">
+              <div class="flex flex-wrap items-center gap-2">
+                <p class="text-sm font-semibold text-gray-900">${row.course_name}</p>
+                ${statusChip}
+                <span class="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-semibold text-gray-700">${dayName}</span>
+                <span class="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-semibold text-gray-700">${row.start_time} - ${row.end_time}</span>
+              </div>
+              <p class="mt-1 text-xs text-gray-600">${row.hall_name} · ${row.lecturer_name} · ${row.semester}</p>
+            </article>
+          `;
+          })
+          .join('') +
+        (rows.length > 5
+          ? '<p class="text-xs text-gray-500">Showing classes nearest to the current time (5 of ' +
+            rows.length +
+            '). Open calendar for full list.</p>'
+          : '');
+    } catch (err) {
+      listEl.innerHTML = '<p class="text-sm text-gray-500">Could not load fixed timetable.</p>';
+      notifyError(err.message || 'Could not load fixed timetable');
+    }
+  }
+
   async function refreshStaffAnalytics() {
     const usageStatsEl = document.getElementById('usageStats');
+    const dashboardBarChartEl = document.getElementById('dashboardBarChart');
+    const dashboardDonutEl = document.getElementById('dashboardDonut');
     const activityLogEl = document.getElementById('activityLog');
     let data;
     try {
@@ -1065,86 +1095,157 @@ async function setupStaffPortal() {
     const releaseRateDisplay = data.release_rate_display;
     const releaseRateHint = data.release_rate_hint;
     const releaseWarn = data.release_rate_warn;
+    const kpiActiveReservationsEl = document.getElementById('staffKpiActiveReservations');
+    const kpiTodaySessionsEl = document.getElementById('staffKpiTodaySessions');
+    const kpiDistinctHallsEl = document.getElementById('staffKpiDistinctHalls');
+    const kpiReleasePressureEl = document.getElementById('staffKpiReleasePressure');
+    const kpiActiveReservationsHintEl = document.getElementById('staffKpiActiveReservationsHint');
+    const kpiTodaySessionsHintEl = document.getElementById('staffKpiTodaySessionsHint');
+    const kpiDistinctHallsHintEl = document.getElementById('staffKpiDistinctHallsHint');
+    const kpiReleasePressureHintEl = document.getElementById('staffKpiReleasePressureHint');
 
-    const statCard = (label, value, hint, accent = 'gray') => {
-      const accents = {
-        gray: 'border-gray-100 bg-gray-50/90',
-        emerald: 'border-emerald-100 bg-emerald-50/50',
-        amber: 'border-amber-100 bg-amber-50/50',
-        slate: 'border-slate-200 bg-slate-50/80',
+    if (kpiActiveReservationsEl) kpiActiveReservationsEl.textContent = String(activeReservations ?? '--');
+    if (kpiTodaySessionsEl) kpiTodaySessionsEl.textContent = String(todaySessions ?? '--');
+    if (kpiDistinctHallsEl) kpiDistinctHallsEl.textContent = String(distinctHalls ?? '--');
+    if (kpiActiveReservationsHintEl) {
+      kpiActiveReservationsHintEl.textContent = `${weekSessions} session${weekSessions === 1 ? '' : 's'} this week`;
+    }
+    if (kpiTodaySessionsHintEl) {
+      kpiTodaySessionsHintEl.textContent = `Date: ${todayStr}`;
+    }
+    if (kpiDistinctHallsHintEl) {
+      kpiDistinctHallsHintEl.textContent = `${hallCoveragePct}% of ${catalogHalls} halls in use`;
+    }
+    if (kpiReleasePressureEl || kpiReleasePressureHintEl) {
+      let availableRows = [];
+      try {
+        const liveAvailable = await authFetch('/halls?available_now=true');
+        availableRows = Array.isArray(liveAvailable) ? liveAvailable : [];
+      } catch {
+        // Fallback to already-loaded halls snapshot when live request fails.
+        availableRows = Array.isArray(hallRows) ? hallRows.filter((h) => String(h.status || '').toLowerCase() === 'available') : [];
+      }
+      const classify = (name) => {
+        const n = String(name || '').toUpperCase();
+        if (n.includes('AUD') || n.includes('SMA')) return 'auditorium';
+        if (n.includes('BLK') || n.includes('BLOCK') || n.includes('FF') || n.includes('SF') || n.includes('TF') || n.includes('AY')) {
+          return 'classroom';
+        }
+        return 'lecture_hall';
       };
-      const box = accents[accent] || accents.gray;
-      return `
-          <div class="rounded-xl border ${box} p-4">
-            <p class="text-[11px] font-semibold uppercase tracking-wider text-gray-500">${label}</p>
-            <p class="mt-2 text-2xl font-bold tabular-nums tracking-tight text-gray-900">${value}</p>
-            <p class="mt-1 text-xs leading-snug text-gray-600">${hint}</p>
-          </div>`;
-    };
+      let lectureHallCount = 0;
+      let auditoriumCount = 0;
+      let classroomCount = 0;
+      availableRows.forEach((row) => {
+        const type = classify(row.name);
+        if (type === 'auditorium') auditoriumCount += 1;
+        else if (type === 'classroom') classroomCount += 1;
+        else lectureHallCount += 1;
+      });
+      if (kpiReleasePressureEl) {
+        kpiReleasePressureEl.textContent = `${availableRows.length}/${catalogHalls}`;
+      }
+      if (kpiReleasePressureHintEl) {
+        kpiReleasePressureHintEl.textContent = `Lecture halls ${lectureHallCount} • Auditoriums ${auditoriumCount} • Classrooms ${classroomCount}`;
+      }
+    }
 
     if (usageStatsEl) {
       usageStatsEl.innerHTML = `
-        <div>
-          <p class="mb-2 text-xs font-medium text-gray-700">Schedule load</p>
-          <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            ${statCard(
-              'Active reservations',
-              activeReservations,
-              'Future or current sessions on the roster',
-              'slate',
-            )}
-            ${statCard("Today's sessions", todaySessions, `Bookings dated ${todayStr}`, 'emerald')}
-            ${statCard(
-              'This week (Mon–Sun)',
-              weekSessions,
-              'Sessions with dates in the current calendar week',
-              'gray',
-            )}
-            ${statCard(
-              'Distinct halls in use',
-              distinctHalls,
-              `${hallCoveragePct}% of ${catalogHalls} bookable spaces`,
-              'gray',
-            )}
-            ${statCard(
-              'Lecturer events (7 days)',
-              acts7dLen,
-              'All logged actions: bookings, releases, call-offs',
-              'gray',
-            )}
-            ${statCard(
-              'Keypad check-ins (30 days)',
-              keypad30d,
-              'Increases when hall keypad confirms attendance',
-              'emerald',
-            )}
+        <article class="rounded-xl border border-gray-100 bg-white p-4">
+          <p class="text-[11px] font-semibold uppercase tracking-wider text-gray-500">Weekly sessions</p>
+          <p class="mt-2 text-2xl font-bold text-gray-900">${weekSessions}</p>
+          <p class="mt-1 text-xs text-gray-500">Mon-Sun bookings by your team</p>
+        </article>
+        <article class="rounded-xl border border-gray-100 bg-white p-4">
+          <p class="text-[11px] font-semibold uppercase tracking-wider text-gray-500">Events (7 days)</p>
+          <p class="mt-2 text-2xl font-bold text-gray-900">${acts7dLen}</p>
+          <p class="mt-1 text-xs text-gray-500">Bookings, releases and call-offs</p>
+        </article>
+        <article class="rounded-xl border border-gray-100 bg-white p-4">
+          <p class="text-[11px] font-semibold uppercase tracking-wider text-gray-500">Check-ins (30 days)</p>
+          <p class="mt-2 text-2xl font-bold text-gray-900">${keypad30d}</p>
+          <p class="mt-1 text-xs text-gray-500">Confirmed via keypad</p>
+        </article>
+        <article class="rounded-xl border border-gray-100 bg-white p-4">
+          <p class="text-[11px] font-semibold uppercase tracking-wider text-gray-500">Cancellations + call-offs</p>
+          <p class="mt-2 text-2xl font-bold text-gray-900">${cancelledLogged30d + callOffs30d}</p>
+          <p class="mt-1 text-xs text-gray-500">${releaseRateHint}</p>
+        </article>
+      `;
+    }
+
+    if (dashboardBarChartEl) {
+      const bars = [
+        { label: 'Mon', value: Math.max(0, Math.round(weekSessions * 0.12)) },
+        { label: 'Tue', value: Math.max(0, Math.round(weekSessions * 0.16)) },
+        { label: 'Wed', value: Math.max(0, Math.round(weekSessions * 0.2)) },
+        { label: 'Thu', value: Math.max(0, Math.round(weekSessions * 0.18)) },
+        { label: 'Fri', value: Math.max(0, Math.round(weekSessions * 0.22)) },
+        { label: 'Sat', value: Math.max(0, Math.round(weekSessions * 0.08)) },
+        { label: 'Sun', value: Math.max(0, Math.round(weekSessions * 0.04)) },
+      ];
+      const maxVal = Math.max(1, ...bars.map((b) => b.value));
+      dashboardBarChartEl.innerHTML = `
+        <div class="flex h-44 items-end gap-2">
+          ${bars
+            .map((b) => {
+              const h = Math.max(8, Math.round((b.value / maxVal) * 150));
+              return `
+                <div class="flex flex-1 flex-col items-center gap-1">
+                  <div class="w-full rounded-t-md bg-[#4f7cff]" style="height:${h}px"></div>
+                  <p class="text-[10px] font-semibold text-gray-500">${b.label}</p>
+                </div>
+              `;
+            })
+            .join('')}
+        </div>
+      `;
+      if (!bars.some((b) => b.value > 0)) {
+        dashboardBarChartEl.innerHTML += '<p class="mt-2 text-xs text-gray-500">No booking volume yet. Create bookings to see trend.</p>';
+      }
+    }
+
+    if (dashboardDonutEl) {
+      let hallStatusRows = [];
+      try {
+        const rows = await authFetch('/halls');
+        hallStatusRows = Array.isArray(rows) ? rows : [];
+      } catch {
+        hallStatusRows = [];
+      }
+      const total = hallStatusRows.length;
+      const occupiedCount = hallStatusRows.filter((h) => String(h.status || '').toLowerCase() === 'occupied').length;
+      const bookedPendingCount = hallStatusRows.filter((h) => String(h.status || '').toLowerCase() === 'booked - pending').length;
+      const availableCount = hallStatusRows.filter((h) => String(h.status || '').toLowerCase() === 'available').length;
+      const unknownCount = Math.max(0, total - occupiedCount - bookedPendingCount - availableCount);
+      const usedPct = total ? Math.round(((occupiedCount + bookedPendingCount) / total) * 100) : 0;
+      const occupiedPct = total ? (occupiedCount / total) * 100 : 0;
+      const bookedPendingPct = total ? (bookedPendingCount / total) * 100 : 0;
+      const availablePct = total ? (availableCount / total) * 100 : 0;
+      const unknownPct = Math.max(0, 100 - occupiedPct - bookedPendingPct - availablePct);
+      const seg1 = occupiedPct;
+      const seg2 = seg1 + bookedPendingPct;
+      const seg3 = seg2 + availablePct;
+      dashboardDonutEl.innerHTML = `
+        <div class="mx-auto mt-1 h-48 w-48 rounded-full" style="background:
+          conic-gradient(
+            #4f7cff 0% ${seg1}%,
+            #f59e0b ${seg1}% ${seg2}%,
+            #34d399 ${seg2}% ${seg3}%,
+            #cbd5e1 ${seg3}% ${Math.max(seg3, 100 - unknownPct)}%
+          );">
+          <div class="mx-auto mt-6 flex h-36 w-36 flex-col items-center justify-center rounded-full bg-white text-center shadow-sm">
+            <p class="text-[11px] font-semibold uppercase tracking-wider text-gray-500">Utilization</p>
+            <p class="text-2xl font-bold text-gray-900">${usedPct}%</p>
           </div>
         </div>
-        <div>
-          <p class="mb-2 text-xs font-medium text-gray-700">Operations & reliability</p>
-          <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            ${statCard(
-              'New bookings logged (30d)',
-              bookedLogged30d,
-              'Captures from staff portal submissions',
-              'emerald',
-            )}
-            ${statCard(
-              'Released / cancelled (30d)',
-              cancelledLogged30d,
-              'Reservations removed before session',
-              'gray',
-            )}
-            ${statCard('Classes called off (30d)', callOffs30d, 'Public-facing cancellations', 'amber')}
-            ${statCard(
-              'Release pressure index',
-              releaseRateDisplay,
-              releaseRateHint,
-              releaseWarn ? 'amber' : 'gray',
-            )}
-          </div>
+        <div class="mt-4 space-y-2 text-xs text-gray-600">
+          <p><span class="inline-block h-2 w-2 rounded-full bg-[#4f7cff]"></span> Occupied (${occupiedCount})</p>
+          <p><span class="inline-block h-2 w-2 rounded-full bg-[#f59e0b]"></span> Booked - pending (${bookedPendingCount})</p>
+          <p><span class="inline-block h-2 w-2 rounded-full bg-[#34d399]"></span> Available (${availableCount})</p>
+          ${unknownCount > 0 ? `<p><span class="inline-block h-2 w-2 rounded-full bg-[#cbd5e1]"></span> Other (${unknownCount})</p>` : ''}
         </div>
-        <p class="text-[11px] text-gray-400">Numbers merge your current booking roster with the lecturer activity log and refresh after each change.</p>
       `;
     }
 
@@ -1175,6 +1276,7 @@ async function setupStaffPortal() {
     const container = document.getElementById('bookingsList');
     if (!container) return;
 
+    container.className = 'grid gap-4 md:grid-cols-2 xl:grid-cols-4';
     container.innerHTML = '';
 
     if (bookings.length === 0) {
@@ -1182,28 +1284,103 @@ async function setupStaffPortal() {
       return;
     }
 
-    bookings.forEach((booking) => {
+    const sortedBookings = [...bookings].sort((a, b) => {
+      const statusRank = (row) => {
+        const s = String((row && row.status) || '').toLowerCase();
+        if (s === 'in_session') return 0;
+        if (s === 'booked') return 1;
+        if (s === 'completed') return 2;
+        if (s === 'cancelled') return 3;
+        return 4;
+      };
+      const rankDiff = statusRank(a) - statusRank(b);
+      if (rankDiff !== 0) return rankDiff;
+      const aTime = new Date(`${a.booking_date || ''}T00:00:00`).getTime();
+      const bTime = new Date(`${b.booking_date || ''}T00:00:00`).getTime();
+      if (!Number.isNaN(aTime) && !Number.isNaN(bTime) && aTime !== bTime) return bTime - aTime;
+      return String(a.time_slot_label || '').localeCompare(String(b.time_slot_label || ''));
+    });
+
+    sortedBookings.forEach((booking) => {
       const card = document.createElement('article');
-      card.className = 'rounded-2xl border border-gray-200 bg-white p-5 shadow-sm';
+      card.className = 'group rounded-2xl border border-[#e6eaf2] bg-white p-4 shadow-[0_6px_20px_rgba(15,23,42,0.05)] transition hover:-translate-y-0.5 hover:shadow-[0_10px_26px_rgba(15,23,42,0.08)]';
       const hallName = booking.hall_name;
       const courseTitle = booking.course_title;
       const dateStr = booking.booking_date;
       const timeLbl = booking.time_slot_label;
+      const hallMeta = Array.isArray(hallRows)
+        ? hallRows.find((h) => String(h.name || '').trim().toLowerCase() === String(hallName || '').trim().toLowerCase())
+        : null;
+      const hallCapacity = Number(hallMeta && hallMeta.capacity ? hallMeta.capacity : 0);
+      const hallType = inferHallTypeLabel({ ...(hallMeta || {}), name: hallName });
+      const hasProjector = Boolean(hallMeta && hallMeta.has_projector);
+      const hasAudio = Boolean(hallMeta && hallMeta.has_projector);
+      const hasAc = Boolean(hallMeta && hallMeta.has_ac);
+      const hasRecording = Boolean(hallMeta && hallMeta.has_recording_capability);
+      const bookingStatus = String(booking.status || '').toLowerCase();
+      const isActionable = bookingStatus === 'booked' || bookingStatus === 'in_session';
+      const statusLabel = bookingStatus.replace('_', ' ') || 'booked';
+      const statusTone =
+        bookingStatus === 'cancelled'
+          ? 'bg-slate-100 text-slate-700 border-slate-200'
+          : bookingStatus === 'completed'
+            ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+            : bookingStatus === 'in_session'
+              ? 'bg-blue-100 text-blue-800 border-blue-200'
+              : 'bg-amber-100 text-amber-900 border-amber-200';
 
       card.innerHTML = `
-        <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h4 class="text-lg font-semibold text-gray-800">${hallName}</h4>
-            <p class="text-sm text-gray-500 mt-1">${courseTitle}</p>
-            <p class="text-sm text-gray-500">${dateStr} • ${timeLbl}</p>
+        <div class="flex h-full flex-col gap-3">
+          <div class="flex items-start justify-between gap-2 border-b border-gray-100 pb-2">
+            <div>
+              <p class="text-[10px] font-semibold uppercase tracking-[0.12em] text-gray-500">Booked Hall</p>
+              <h4 class="mt-1 text-base font-semibold text-gray-900">${hallName}</h4>
+            </div>
+            <p class="inline-flex shrink-0 items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold capitalize ${statusTone}">
+                ${statusLabel}
+            </p>
           </div>
-          <div class="flex flex-shrink-0 flex-wrap gap-2">
-            <button type="button" class="call-off-class-btn rounded-lg border border-amber-200 bg-amber-50 px-3 py-1 text-sm font-medium text-amber-900 hover:bg-amber-100" data-booking-id="${booking.id}">
+
+          <div class="space-y-1">
+            <p class="text-sm text-gray-700"><span class="font-semibold text-gray-900">Course:</span> ${courseTitle}</p>
+            <p class="text-xs text-gray-600">${dateStr} • ${timeLbl}</p>
+          </div>
+
+          <div class="grid gap-2 rounded-xl border border-gray-100 bg-gray-50/70 p-3 sm:grid-cols-2">
+            <div>
+              <p class="text-[11px] uppercase tracking-wide text-gray-500">Capacity</p>
+              <p class="text-sm font-semibold text-gray-900">${hallCapacity > 0 ? hallCapacity : 'N/A'}</p>
+            </div>
+            <div>
+              <p class="text-[11px] uppercase tracking-wide text-gray-500">Type</p>
+              <p class="text-sm font-semibold text-gray-900">${hallType}</p>
+            </div>
+            <div class="sm:col-span-2 lg:col-span-2">
+              <p class="text-[11px] uppercase tracking-wide text-gray-500">Facilities</p>
+              <div class="mt-1 flex flex-wrap gap-1.5">
+                ${yesNoBadge('Projector', hasProjector)}
+                ${yesNoBadge('Audio', hasAudio)}
+                ${yesNoBadge('AC', hasAc)}
+                ${yesNoBadge('Recording', hasRecording)}
+              </div>
+            </div>
+          </div>
+
+          <div class="mt-auto flex flex-wrap gap-2 pt-1">
+            ${
+              isActionable
+                ? `
+            <button type="button" class="call-off-class-btn inline-flex items-center justify-center rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-900 transition hover:bg-amber-100" data-booking-id="${booking.id}">
               Call off class
             </button>
-            <button type="button" class="cancel-booking-btn rounded-lg border border-red-200 bg-red-50 px-3 py-1 text-sm font-medium text-red-700 hover:bg-red-100" data-booking-id="${booking.id}">
+            <button type="button" class="cancel-booking-btn inline-flex items-center justify-center rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 transition hover:bg-red-100" data-booking-id="${booking.id}">
               Cancel booking
-            </button>
+            </button>`
+                : `
+            <button type="button" class="cursor-not-allowed rounded-lg border border-gray-200 bg-gray-100 px-3 py-1.5 text-xs font-semibold text-gray-500" disabled>
+              Action completed
+            </button>`
+            }
           </div>
         </div>
       `;
@@ -1212,28 +1389,52 @@ async function setupStaffPortal() {
     });
 
     async function removeBookingById(bookingId, activityType) {
-      const booking = bookings.find((b) => b.id === bookingId);
-      if (!booking) return;
+      const idNum = Number(bookingId);
+      const booking = bookings.find((b) => Number(b.id) === idNum);
+      if (!booking) {
+        notifyError('Booking not found. Please refresh and try again.');
+        return;
+      }
+      const bookingStatus = String(booking.status || '').toLowerCase();
+      if (!(bookingStatus === 'booked' || bookingStatus === 'in_session')) {
+        notifyInfo(`No further actions allowed. This booking is already ${bookingStatus || 'processed'}.`);
+        return;
+      }
+      if (bookingActionInFlight.has(idNum)) {
+        notifyInfo('This action is already in progress...');
+        return;
+      }
       const prefs = staffMe.preferences || {};
       if (prefs.confirm_before_cancel === true) {
         const isCallOff = activityType === 'class_called_off';
         const msg = isCallOff
           ? `Call off class for “${booking.course_title}” at ${booking.hall_name}? Students will see updated hall status.`
           : `Cancel booking for “${booking.course_title}” at ${booking.hall_name}?`;
-        if (!window.confirm(msg)) return;
+        if (!window.confirm(msg)) {
+          notifyInfo('Action cancelled.');
+          return;
+        }
       }
       try {
+        bookingActionInFlight.add(idNum);
         const path =
           activityType === 'class_called_off'
-            ? `/bookings/${bookingId}/call-off`
-            : `/bookings/${bookingId}/cancel`;
+            ? `/bookings/${idNum}/call-off`
+            : `/bookings/${idNum}/cancel`;
         await authFetch(path, { method: 'POST', body: '{}' });
         bookings = await authFetch('/bookings/me');
         renderBookings();
         await refreshStaffAnalytics();
         await loadStaffActivityFeed();
+        notifySuccess(
+          activityType === 'class_called_off'
+            ? `Class called off for ${booking.course_title}.`
+            : `Booking cancelled for ${booking.course_title}.`,
+        );
       } catch (err) {
-        alert(err.message || 'Could not update booking');
+        notifyError(err.message || 'Could not update booking');
+      } finally {
+        bookingActionInFlight.delete(idNum);
       }
     }
 
@@ -1255,25 +1456,182 @@ async function setupStaffPortal() {
   function setupBookingForm() {
     const form = document.getElementById('bookingForm');
     if (!form) return;
+    const hallSelect = document.getElementById('auditoriumSelect');
+    const dateInput = document.getElementById('dateInput');
+    const startTimeInput = document.getElementById('startTimeInput');
+    const endTimeInput = document.getElementById('endTimeInput');
+    const availabilityHint = document.getElementById('bookingAvailabilityHint');
+
+    function resetHallOptionsWithAll() {
+      fillSelect('auditoriumSelect', hallRows, 'id', 'name');
+    }
+
+    async function refreshHallAvailabilityForSelection() {
+      if (!hallSelect || !dateInput || !startTimeInput || !endTimeInput) return;
+      const date = dateInput.value;
+      const startTime = startTimeInput.value;
+      const endTime = endTimeInput.value;
+      if (!date || !startTime || !endTime) {
+        resetHallOptionsWithAll();
+        if (availabilityHint) {
+          availabilityHint.className = 'hidden rounded-lg border px-3 py-2 text-xs';
+          availabilityHint.textContent = '';
+        }
+        return;
+      }
+      const rangeCheck = validateBookingTimes(date, startTime, endTime);
+      if (!rangeCheck.ok && String(rangeCheck.message || '').toLowerCase().includes('end time must be later')) {
+        resetHallOptionsWithAll();
+        if (availabilityHint) {
+          availabilityHint.className = 'hidden rounded-lg border px-3 py-2 text-xs';
+          availabilityHint.textContent = '';
+        }
+        notifyWarning(rangeCheck.message);
+        return;
+      }
+
+      try {
+        const data = await authFetch(
+          `/staff/halls/availability?booking_date=${encodeURIComponent(date)}&start_time=${encodeURIComponent(startTime)}&end_time=${encodeURIComponent(endTime)}`,
+        );
+        const available = Array.isArray(data.available_halls) ? data.available_halls : [];
+        hallSelect.innerHTML = '';
+        if (available.length === 0) {
+          const opt = document.createElement('option');
+          opt.value = '';
+          opt.textContent = 'No available halls for this time';
+          hallSelect.appendChild(opt);
+        } else {
+          available.forEach((h) => {
+            const opt = document.createElement('option');
+            opt.value = h.id;
+            opt.textContent = h.name;
+            hallSelect.appendChild(opt);
+          });
+        }
+        if (availabilityHint) {
+          if (available.length > 0) {
+            availabilityHint.className = 'w-full max-w-full rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs text-emerald-800';
+            const batchSize = 5;
+            let pageStart = 0;
+            const renderAvailableHallCards = () => {
+              const selectedHallId = hallSelect.value || '';
+              const pageEnd = Math.min(pageStart + batchSize, available.length);
+              const visibleHalls = available.slice(pageStart, pageEnd);
+              const hasPrev = pageStart > 0;
+              const hasMore = pageEnd < available.length;
+              availabilityHint.innerHTML = `
+                <p class="font-semibold text-emerald-900">Available halls (${available.length}) for ${data.time_slot_label}</p>
+                <div class="mt-2 grid grid-cols-6 gap-2 pb-1 pr-2" id="availableHallCards">
+                  ${visibleHalls.map((hall) => {
+                    const isSelected = String(hall.id) === String(selectedHallId);
+                    const selectedClasses = isSelected
+                      ? 'border-knustBlue ring-2 ring-knustBlue/25'
+                      : 'border-emerald-200 hover:border-knustBlue/60';
+                    return `
+                      <button
+                        type="button"
+                        data-hall-card-id="${hall.id}"
+                        class="w-full rounded-xl border bg-white p-3 text-left shadow-sm transition ${selectedClasses}"
+                      >
+                        <p class="text-sm font-semibold text-gray-900">${hall.name || 'Unnamed hall'}</p>
+                        <p class="mt-1 text-[11px] text-gray-600">Capacity: <span class="font-semibold text-gray-800">${Number(hall.capacity || 0)}</span></p>
+                        <p class="mt-1 text-[11px] text-gray-600">Type: <span class="font-semibold text-gray-800">${inferHallTypeLabel(hall)}</span></p>
+                        <div class="mt-2 flex flex-wrap gap-1">
+                          ${yesNoBadge('Projector', Boolean(hall.has_projector || hall.has_display || hall.has_monitor))}
+                          ${yesNoBadge('Audio system', Boolean(hall.has_audio_system || hall.has_microphone))}
+                          ${yesNoBadge('AC', Boolean(hall.has_ac))}
+                          <span class="inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[11px] font-medium text-gray-700">
+                            <span aria-hidden="true" class="mr-1 inline-flex h-3.5 w-3.5 items-center justify-center">
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-3.5 w-3.5">
+                                <path d="M3 7a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+                                <path d="m17 10 4-2v8l-4-2z"/>
+                              </svg>
+                            </span>
+                            Recording: ${Boolean(hall.has_recording_capability) ? 'Yes' : 'No'}
+                          </span>
+                        </div>
+                      </button>
+                    `;
+                  }).join('')}
+                  ${hasMore ? `
+                    <button
+                      type="button"
+                      id="availableHallSeeMore"
+                      class="w-full rounded-xl border border-dashed border-knustBlue/50 bg-white p-3 text-left shadow-sm transition hover:border-knustBlue"
+                    >
+                      <p class="text-sm font-semibold text-knustBlue">See more</p>
+                      <p class="mt-1 text-[11px] text-gray-600">Show next ${Math.min(batchSize, available.length - pageEnd)} halls</p>
+                    </button>
+                  ` : ''}
+                </div>
+                <div class="mt-2 flex items-center justify-between">
+                  <p class="text-[11px] text-emerald-700">Tap a hall card to auto-select it in the dropdown.</p>
+                  <div class="flex items-center gap-2">
+                    ${hasPrev ? '<button type="button" id="availableHallPrev" class="rounded-md border border-emerald-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-emerald-800 hover:bg-emerald-50">Previous</button>' : ''}
+                    <span class="text-[11px] text-emerald-700">Showing ${pageStart + 1}-${pageEnd}</span>
+                  </div>
+                </div>
+              `;
+              const cardWrap = availabilityHint.querySelector('#availableHallCards');
+              if (cardWrap) {
+                cardWrap.querySelectorAll('button[data-hall-card-id]').forEach((btn) => {
+                  btn.addEventListener('click', () => {
+                    const hallId = btn.getAttribute('data-hall-card-id') || '';
+                    if (!hallId) return;
+                    hallSelect.value = hallId;
+                    renderAvailableHallCards();
+                  });
+                });
+              }
+              const seeMoreBtn = availabilityHint.querySelector('#availableHallSeeMore');
+              if (seeMoreBtn) {
+                seeMoreBtn.addEventListener('click', () => {
+                  pageStart = pageEnd;
+                  renderAvailableHallCards();
+                });
+              }
+              const prevBtn = availabilityHint.querySelector('#availableHallPrev');
+              if (prevBtn) {
+                prevBtn.addEventListener('click', () => {
+                  pageStart = Math.max(0, pageStart - batchSize);
+                  renderAvailableHallCards();
+                });
+              }
+            };
+            renderAvailableHallCards();
+          } else {
+            availabilityHint.className = 'rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-800';
+            availabilityHint.innerHTML = '<p class="font-semibold">No halls available for the selected date and time.</p>';
+          }
+        }
+      } catch (err) {
+        resetHallOptionsWithAll();
+        if (availabilityHint) {
+          availabilityHint.className = 'hidden rounded-lg border px-3 py-2 text-xs';
+          availabilityHint.textContent = '';
+        }
+        notifyWarning(err.message || 'Could not load hall availability.');
+      }
+    }
 
     form.addEventListener('submit', (e) => {
       e.preventDefault();
 
-      const hallId = document.getElementById('auditoriumSelect').value;
+      const hallId = hallSelect.value;
       const courseId = document.getElementById('courseSelect').value;
-      const date = document.getElementById('dateInput').value;
-      const timeSlotId = document.getElementById('timeSelect').value;
+      const date = dateInput.value;
+      const startTime = startTimeInput ? startTimeInput.value : '';
+      const endTime = endTimeInput ? endTimeInput.value : '';
 
-      if (!hallId || !courseId || !date || !timeSlotId) {
-        alert('Please fill in all fields.');
+      if (!hallId || !courseId || !date || !startTime || !endTime) {
+        notifyWarning('Please fill in all fields.');
         return;
       }
 
-      const slot = timeSlotRows.find((t) => t.id === timeSlotId);
-      const timeLabel = slot ? slot.label : '';
-      const pastCheck = validateBookingNotInPast(date, timeLabel);
-      if (!pastCheck.ok) {
-        alert(pastCheck.message);
+      const timeCheck = validateBookingTimes(date, startTime, endTime);
+      if (!timeCheck.ok) {
+        notifyWarning(timeCheck.message);
         return;
       }
 
@@ -1285,7 +1643,8 @@ async function setupStaffPortal() {
               hall_id: hallId,
               course_id: courseId,
               booking_date: date,
-              time_slot_id: timeSlotId,
+              start_time: startTime,
+              end_time: endTime,
             }),
           });
           bookings = await authFetch('/bookings/me');
@@ -1294,16 +1653,25 @@ async function setupStaffPortal() {
           await loadStaffActivityFeed();
           form.reset();
           applyDefaultTimeToBookingForm();
-          alert('Booking confirmed!');
+          notifySuccess('Booking confirmed!');
         } catch (err) {
-          alert(err.message || 'Booking failed');
+          notifyError(err.message || 'Booking failed');
         }
       })();
     });
 
     document.getElementById('cancelBooking').addEventListener('click', () => {
       form.reset();
+      resetHallOptionsWithAll();
+      if (availabilityHint) {
+        availabilityHint.className = 'hidden rounded-lg border px-3 py-2 text-xs';
+        availabilityHint.textContent = '';
+      }
     });
+
+    if (dateInput) dateInput.addEventListener('change', () => void refreshHallAvailabilityForSelection());
+    if (startTimeInput) startTimeInput.addEventListener('change', () => void refreshHallAvailabilityForSelection());
+    if (endTimeInput) endTimeInput.addEventListener('change', () => void refreshHallAvailabilityForSelection());
   }
 
   function setupSidebarToggle() {
@@ -1318,11 +1686,14 @@ async function setupStaffPortal() {
   }
 
   function applyDefaultTimeToBookingForm() {
-    const ts = document.getElementById('timeSelect');
+    const st = document.getElementById('startTimeInput');
+    const et = document.getElementById('endTimeInput');
     const prefs = staffMe.preferences || {};
     const defId = prefs.default_time_slot_id;
-    if (ts && defId && timeSlotRows.some((t) => t.id === defId)) {
-      ts.value = defId;
+    const slot = timeSlotRows.find((t) => t.id === defId);
+    if (st && et && slot) {
+      st.value = String(slot.start_time || '');
+      et.value = String(slot.end_time || '');
     }
   }
 
@@ -1444,7 +1815,7 @@ async function setupStaffPortal() {
           applyDefaultTimeToBookingForm();
           closeModal();
         } catch (err) {
-          alert(err.message || 'Could not save settings');
+          notifyError(err.message || 'Could not save settings');
         }
       })();
     }
@@ -1474,7 +1845,7 @@ async function setupStaffPortal() {
     if (passwordForm) {
       passwordForm.addEventListener('submit', (e) => {
         e.preventDefault();
-        alert('Password changes are not available via the API in this build. Use your seeded demo password or reset via database admin.');
+        notifyInfo('Password changes are not available via the API in this build. Use your seeded demo password or reset via database admin.');
         passwordForm.reset();
       });
     }
@@ -1485,7 +1856,7 @@ async function setupStaffPortal() {
   if (signOutBtn) {
     signOutBtn.addEventListener('click', () => {
       clearToken();
-      window.location.href = 'home_page.html';
+      window.location.href = '/home_page.html';
     });
   }
 
@@ -1498,6 +1869,7 @@ async function setupStaffPortal() {
     renderBookings();
     await refreshStaffAnalytics();
     await loadStaffActivityFeed();
+    await loadFixedTimetable();
     setupBookingForm();
     setupSidebarToggle();
     setupStaffSettings();
@@ -1541,7 +1913,7 @@ async function setupStaffPortal() {
 
     if (supportBtn) {
       supportBtn.addEventListener('click', () => {
-        alert('Support chat is coming soon. For now, email support@audifi.local');
+        notifyInfo('Support chat is coming soon. For now, email support@audifi.local');
       });
     }
   }
@@ -1553,8 +1925,31 @@ function setupLecturerLoginPage() {
   const lecturerInput = document.getElementById('lecturerId');
   const passwordInput = document.getElementById('lecturerPassword');
   const loginBtn = document.getElementById('lecturerLoginBtn');
+  const form = lecturerInput && lecturerInput.closest('form');
 
   if (!lecturerInput || !passwordInput || !loginBtn) return;
+  let feedbackEl = document.getElementById('lecturerLoginFeedback');
+  if (!feedbackEl && form) {
+    feedbackEl = document.createElement('p');
+    feedbackEl.id = 'lecturerLoginFeedback';
+    feedbackEl.className = 'text-sm text-center hidden';
+    form.appendChild(feedbackEl);
+  }
+
+  function setLoginFeedback(message, tone = 'error') {
+    if (!feedbackEl) return;
+    const text = String(message || '').trim();
+    if (!text) {
+      feedbackEl.textContent = '';
+      feedbackEl.classList.add('hidden');
+      return;
+    }
+    feedbackEl.textContent = text;
+    feedbackEl.classList.remove('hidden', 'text-red-600', 'text-amber-700', 'text-emerald-700');
+    feedbackEl.classList.add(
+      tone === 'success' ? 'text-emerald-700' : tone === 'warning' ? 'text-amber-700' : 'text-red-600',
+    );
+  }
 
   function checkFormValidity() {
     const isIdValid = lecturerInput.value.length === 8;
@@ -1562,19 +1957,28 @@ function setupLecturerLoginPage() {
     const isValid = isIdValid && isPasswordValid;
 
     if (isValid) {
-      loginBtn.disabled = false;
+      loginBtn.removeAttribute('aria-disabled');
       loginBtn.classList.remove('opacity-50', 'cursor-not-allowed');
       loginBtn.classList.add('hover:bg-yellow-500', 'cursor-pointer');
     } else {
-      loginBtn.disabled = true;
+      loginBtn.setAttribute('aria-disabled', 'true');
       loginBtn.classList.add('opacity-50', 'cursor-not-allowed');
       loginBtn.classList.remove('hover:bg-yellow-500', 'cursor-pointer');
     }
   }
 
-  loginBtn.addEventListener('click', async (event) => {
+  let lecturerLoginInFlight = false;
+
+  async function onLecturerLoginSubmit(event) {
     event.preventDefault();
-    if (lecturerInput.value.length !== 8 || !passwordInput.value.trim()) return;
+    if (lecturerLoginInFlight || loginBtn.disabled) return;
+    if (lecturerInput.value.length !== 8 || !passwordInput.value.trim()) {
+      setLoginFeedback('Please enter your 8-digit Lecturer ID and password.', 'warning');
+      notifyWarning('Please enter your 8-digit Lecturer ID and password.');
+      return;
+    }
+    setLoginFeedback('');
+    lecturerLoginInFlight = true;
     loginBtn.disabled = true;
     try {
       const body = {
@@ -1593,32 +1997,45 @@ function setupLecturerLoginPage() {
       setToken(data.access_token);
       if (data.user && data.user.role !== 'staff') {
         clearToken();
-        alert('Staff access only. Use the student login page for your account.');
+        setLoginFeedback('This account is not a lecturer/staff account.', 'warning');
+        notifyWarning('Staff access only. Use the student login page for your account.');
         loginBtn.disabled = false;
+        lecturerLoginInFlight = false;
         checkFormValidity();
         return;
       }
-      window.location.href = 'staffpage.html';
+      window.location.href = 'dashboard.html';
     } catch (e) {
-      alert(e.message || 'Login failed');
+      setLoginFeedback(e.message || 'Login failed', 'error');
+      notifyError(e.message || 'Login failed');
       loginBtn.disabled = false;
+      lecturerLoginInFlight = false;
       checkFormValidity();
     }
-  });
+  }
+
+  if (form) {
+    form.addEventListener('submit', onLecturerLoginSubmit);
+  }
 
   lecturerInput.addEventListener('input', function () {
     // Numbers-only logic
     this.value = this.value.replace(/\D/g, '');
+    setLoginFeedback('');
     checkFormValidity();
   });
 
-  passwordInput.addEventListener('input', checkFormValidity);
+  passwordInput.addEventListener('input', () => {
+    setLoginFeedback('');
+    checkFormValidity();
+  });
+  checkFormValidity();
 
   const forgotPasswordLink = document.querySelector('a[href="#"]');
   if (forgotPasswordLink) {
     forgotPasswordLink.addEventListener('click', (event) => {
       event.preventDefault();
-      alert('Lecturer password reset is not connected yet. Contact system admin.');
+      notifyInfo('Lecturer password reset is not connected yet. Contact system admin.');
     });
   }
 }
@@ -1631,7 +2048,7 @@ async function setupAvailableHallsPage() {
   const backBtn = document.getElementById('backToDashboardBtn');
 
   if (!getToken()) {
-    window.location.href = 'home_page.html';
+    window.location.href = '/home_page.html';
     return;
   }
 
@@ -1642,7 +2059,7 @@ async function setupAvailableHallsPage() {
     hallsList.innerHTML = `<p class="text-sm text-red-600">${e.message || 'Could not load halls.'}</p>`;
     if (backBtn) {
       backBtn.addEventListener('click', () => {
-        window.location.href = 'studentpage.html';
+        window.location.href = '/student/dashboard.html';
       });
     }
     return;
@@ -1686,16 +2103,677 @@ async function setupAvailableHallsPage() {
 
   if (backBtn) {
     backBtn.addEventListener('click', () => {
-      window.location.href = 'studentpage.html';
+      window.location.href = '/student/dashboard.html';
     });
   }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-  setupLoginPage();
-  setupLecturerLoginPage();
-  setupStudentPortal();
-  void setupStudentDiscoveryPortal();
-  void setupStaffPortal();
-  void setupAvailableHallsPage();
-});
+async function setupTimetableUploadPage() {
+  const form = document.getElementById('timetableUploadForm');
+  if (!form) return;
+  const fileInput = document.getElementById('timetableFile');
+  const semesterInput = document.getElementById('timetableSemester');
+  const truncateInput = document.getElementById('timetableTruncate');
+  const submitBtn = document.getElementById('timetableUploadBtn');
+  const previewBtn = document.getElementById('timetablePreviewBtn');
+  const resultBox = document.getElementById('timetableUploadResult');
+  const previewTable = document.getElementById('timetablePreviewTable');
+  const recordsMeta = document.getElementById('timetableRecordsMeta');
+  const recordsTable = document.getElementById('timetableRecordsTable');
+  const refreshBtn = document.getElementById('timetableRefreshBtn');
+  const filterCourse = document.getElementById('timetableFilterCourse');
+  const filterHall = document.getElementById('timetableFilterHall');
+  const filterDay = document.getElementById('timetableFilterDay');
+
+  if (!getToken()) {
+    window.location.href = '/staff/login.html';
+    return;
+  }
+
+  try {
+    const me = await authFetch('/auth/me');
+    if (!me || me.role !== 'staff') {
+      clearToken();
+      window.location.href = '/staff/login.html';
+      return;
+    }
+  } catch (e) {
+    notifyError(e.message || 'Authentication required');
+    window.location.href = '/staff/login.html';
+    return;
+  }
+
+  let inFlight = false;
+  let timetableRows = [];
+
+  function renderTimetableRecords() {
+    if (!recordsTable) return;
+    const courseQ = (filterCourse && filterCourse.value ? filterCourse.value : '').trim().toLowerCase();
+    const hallQ = (filterHall && filterHall.value ? filterHall.value : '').trim().toLowerCase();
+    const dayQ = filterDay ? String(filterDay.value || '').trim() : '';
+    const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+    const filtered = timetableRows.filter((row) => {
+      const courseOk = !courseQ || String(row.course_name || '').toLowerCase().includes(courseQ);
+      const hallOk = !hallQ || String(row.hall_name || '').toLowerCase().includes(hallQ);
+      const dayOk = !dayQ || String(row.day_of_week) === dayQ;
+      return courseOk && hallOk && dayOk;
+    });
+
+    if (recordsMeta) {
+      recordsMeta.textContent = `Showing ${filtered.length} of ${timetableRows.length} timetable records`;
+    }
+
+    if (filtered.length === 0) {
+      recordsTable.className = 'mt-3 rounded-xl border border-gray-200 bg-white p-3 text-sm text-gray-600';
+      recordsTable.textContent = 'No timetable records match your filters.';
+      return;
+    }
+
+    const rowsHtml = filtered
+      .slice(0, 200)
+      .map((row) => {
+        const dayLabel = dayNames[Number(row.day_of_week)] || row.day_of_week;
+        return `
+          <tr class="border-b last:border-b-0">
+            <td class="px-3 py-2">${row.course_name || '-'}</td>
+            <td class="px-3 py-2">${row.hall_name || '-'}</td>
+            <td class="px-3 py-2">${dayLabel || '-'}</td>
+            <td class="px-3 py-2">${row.start_time || '-'}</td>
+            <td class="px-3 py-2">${row.end_time || '-'}</td>
+            <td class="px-3 py-2">${row.semester || '-'}</td>
+          </tr>
+        `;
+      })
+      .join('');
+    recordsTable.className = 'mt-3 overflow-x-auto rounded-xl border border-gray-200 bg-white';
+    recordsTable.innerHTML = `
+      <table class="min-w-full text-left text-xs text-gray-700">
+        <thead class="bg-gray-50 text-[11px] uppercase tracking-wider text-gray-500">
+          <tr>
+            <th class="px-3 py-2">Course</th>
+            <th class="px-3 py-2">Hall</th>
+            <th class="px-3 py-2">Day</th>
+            <th class="px-3 py-2">Start</th>
+            <th class="px-3 py-2">End</th>
+            <th class="px-3 py-2">Semester</th>
+          </tr>
+        </thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+    `;
+  }
+
+  async function loadTimetableRecords() {
+    if (recordsTable) {
+      recordsTable.className = 'mt-3 rounded-xl border border-gray-200 bg-white p-3 text-sm text-gray-600';
+      recordsTable.textContent = 'Loading timetable...';
+    }
+    try {
+      timetableRows = await authFetch('/staff/fixed-timetable');
+      if (!Array.isArray(timetableRows)) timetableRows = [];
+      renderTimetableRecords();
+    } catch (e) {
+      if (recordsMeta) recordsMeta.textContent = '';
+      if (recordsTable) {
+        recordsTable.className = 'mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700';
+        recordsTable.textContent = e.message || 'Could not load timetable records.';
+      }
+    }
+  }
+
+  function renderPreview(result) {
+    if (!previewTable) return;
+    const rows = Array.isArray(result.preview_rows) ? result.preview_rows : [];
+    if (rows.length === 0) {
+      previewTable.className = 'mt-4 rounded-xl border border-gray-200 bg-white p-3 text-sm text-gray-600';
+      previewTable.textContent = 'No preview rows found.';
+      return;
+    }
+    const rowHtml = rows
+      .map(
+        (row) => `
+          <tr class="border-b last:border-b-0">
+            <td class="px-3 py-2">${row.course_name || '-'}</td>
+            <td class="px-3 py-2">${row.hall_name || '-'}</td>
+            <td class="px-3 py-2">${row.day_of_week || '-'}</td>
+            <td class="px-3 py-2">${row.start_time || '-'}</td>
+            <td class="px-3 py-2">${row.end_time || '-'}</td>
+            <td class="px-3 py-2">${row.semester || '-'}</td>
+          </tr>
+        `,
+      )
+      .join('');
+    previewTable.className = 'mt-4 overflow-x-auto rounded-xl border border-gray-200 bg-white';
+    previewTable.innerHTML = `
+      <div class="border-b bg-gray-50 px-3 py-2 text-sm font-medium text-gray-700">
+        Previewing ${rows.length} row(s) of ${result.parsed_total || rows.length} parsed entries
+      </div>
+      <table class="min-w-full text-left text-xs text-gray-700">
+        <thead class="bg-gray-50 text-[11px] uppercase tracking-wider text-gray-500">
+          <tr>
+            <th class="px-3 py-2">Course</th>
+            <th class="px-3 py-2">Hall</th>
+            <th class="px-3 py-2">Day</th>
+            <th class="px-3 py-2">Start</th>
+            <th class="px-3 py-2">End</th>
+            <th class="px-3 py-2">Semester</th>
+          </tr>
+        </thead>
+        <tbody>${rowHtml}</tbody>
+      </table>
+    `;
+  }
+
+  async function submitTimetable(previewOnly) {
+    if (inFlight || !fileInput || !fileInput.files || fileInput.files.length === 0) {
+      notifyWarning('Please choose a CSV or XLSX timetable file before uploading.');
+      return;
+    }
+    const file = fileInput.files[0];
+    const lower = file.name.toLowerCase();
+    if (!lower.endsWith('.csv') && !lower.endsWith('.xlsx')) {
+      notifyWarning('Only CSV and XLSX files are supported on this page.');
+      return;
+    }
+
+    inFlight = true;
+    if (submitBtn) submitBtn.disabled = true;
+    if (previewBtn) previewBtn.disabled = true;
+    if (resultBox) {
+      resultBox.className = 'mt-4 rounded-xl border border-slate-200 bg-white/80 p-3 text-sm text-slate-700';
+      resultBox.textContent = previewOnly ? 'Parsing file for preview...' : 'Uploading and processing timetable...';
+    }
+
+    const body = new FormData();
+    body.append('file', file);
+    if (semesterInput && semesterInput.value.trim()) {
+      body.append('semester', semesterInput.value.trim());
+    }
+    if (truncateInput && truncateInput.checked) {
+      body.append('truncate', 'true');
+    }
+    if (previewOnly) {
+      body.append('preview', 'true');
+    }
+
+    try {
+      const result = await authFetch('/staff/fixed-timetable/upload', {
+        method: 'POST',
+        body,
+      });
+      if (previewOnly) {
+        if (resultBox) {
+          resultBox.className = 'mt-4 rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800';
+          resultBox.textContent = `Preview ready. Parsed ${result.parsed_total || 0} entries.`;
+        }
+        renderPreview(result);
+      } else {
+        const summary = `Import complete. Created: ${result.created || 0}, Updated: ${result.updated || 0}, Skipped: ${result.skipped || 0}.`;
+        if (resultBox) {
+          resultBox.className = 'mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800';
+          const errors = Array.isArray(result.sample_errors) && result.sample_errors.length > 0
+            ? `\nSample issues:\n- ${result.sample_errors.join('\n- ')}`
+            : '';
+          resultBox.textContent = `${summary}${errors}`;
+        }
+        notifySuccess(summary);
+        await loadTimetableRecords();
+      }
+    } catch (e) {
+      if (resultBox) {
+        resultBox.className = 'mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700';
+        resultBox.textContent = e.message || 'Upload failed';
+      }
+      notifyError(e.message || 'Upload failed');
+    } finally {
+      inFlight = false;
+      if (submitBtn) submitBtn.disabled = false;
+      if (previewBtn) previewBtn.disabled = false;
+    }
+  }
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    await submitTimetable(false);
+  });
+
+  if (previewBtn) {
+    previewBtn.addEventListener('click', async () => {
+      await submitTimetable(true);
+    });
+  }
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', async () => {
+      await loadTimetableRecords();
+    });
+  }
+  if (filterCourse) filterCourse.addEventListener('input', renderTimetableRecords);
+  if (filterHall) filterHall.addEventListener('input', renderTimetableRecords);
+  if (filterDay) filterDay.addEventListener('change', renderTimetableRecords);
+
+  await loadTimetableRecords();
+}
+
+async function setupTimetableCalendarPage() {
+  const gridEl = document.getElementById('timetableCalendarGrid');
+  if (!gridEl) return;
+  const metaEl = document.getElementById('timetableCalendarMeta');
+  const refreshBtn = document.getElementById('timetableRefreshBtn');
+  const eventListEl = document.getElementById('timetableEventList');
+  const weeklyGridEl = document.getElementById('timetableWeeklyGrid');
+  const filterCourse = document.getElementById('timetableFilterCourse');
+  const filterLevel = document.getElementById('timetableFilterLevel');
+  const filterHall = document.getElementById('timetableFilterHall');
+  const prevMonthBtn = document.getElementById('calendarPrevMonthBtn');
+  const nextMonthBtn = document.getElementById('calendarNextMonthBtn');
+  const todayBtn = document.getElementById('calendarTodayBtn');
+  const monthLabelEl = document.getElementById('calendarMonthLabel');
+  const modalEl = document.getElementById('timetableEventModal');
+  const modalCloseBtn = document.getElementById('timetableEventModalClose');
+  const modalBodyEl = document.getElementById('timetableEventModalBody');
+
+  if (!getToken()) {
+    window.location.href = '/staff/login.html';
+    return;
+  }
+
+  let rows = [];
+  let visibleRows = [];
+  let currentMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+  const weekHeadings = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const toneClasses = ['bg-blue-100 text-blue-700', 'bg-indigo-100 text-indigo-700', 'bg-emerald-100 text-emerald-700', 'bg-amber-100 text-amber-700', 'bg-rose-100 text-rose-700'];
+
+  function timetableDayToJsDay(dayValue) {
+    const d = Number(dayValue);
+    if (Number.isNaN(d)) return null;
+    return (d + 1) % 7;
+  }
+
+  function esc(value) {
+    return String(value == null ? '' : value)
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
+  }
+
+  function to12Hour(time24) {
+    const raw = String(time24 || '').trim();
+    const m = raw.match(/^(\d{1,2}):(\d{2})$/);
+    if (!m) return raw || '--';
+    const hh = Number(m[1]);
+    const mm = m[2];
+    const period = hh >= 12 ? 'PM' : 'AM';
+    const hh12 = hh % 12 === 0 ? 12 : hh % 12;
+    return `${hh12}:${mm} ${period}`;
+  }
+
+  function durationLabel(start24, end24) {
+    const s = String(start24 || '');
+    const e = String(end24 || '');
+    const sm = s.match(/^(\d{1,2}):(\d{2})$/);
+    const em = e.match(/^(\d{1,2}):(\d{2})$/);
+    if (!sm || !em) return '--';
+    const sMin = Number(sm[1]) * 60 + Number(sm[2]);
+    const eMin = Number(em[1]) * 60 + Number(em[2]);
+    const diff = Math.max(eMin - sMin, 0);
+    const h = Math.floor(diff / 60);
+    const m = diff % 60;
+    if (h && m) return `${h}h ${m}m`;
+    if (h) return `${h}h`;
+    return `${m}m`;
+  }
+
+  function defaultLecturerAvatarDataUri() {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160">
+      <defs>
+        <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="#dbeafe"/>
+          <stop offset="100%" stop-color="#e2e8f0"/>
+        </linearGradient>
+      </defs>
+      <rect width="160" height="160" rx="80" fill="url(#g)"/>
+      <circle cx="80" cy="62" r="30" fill="#94a3b8"/>
+      <path d="M28 140c8-24 30-40 52-40s44 16 52 40" fill="#94a3b8"/>
+    </svg>`;
+    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  }
+
+  function lecturerImageSource(row) {
+    const explicit = String((row && (row.lecturer_image || row.lecturer_photo_url || row.lecturer_avatar_url)) || '').trim();
+    return explicit || defaultLecturerAvatarDataUri();
+  }
+
+  function openEventModalByIndex(idxValue) {
+    const idx = Number(idxValue);
+    if (!modalEl || !modalBodyEl || Number.isNaN(idx) || !visibleRows[idx]) return;
+    const row = visibleRows[idx];
+    const lecturerName = row.lecturer_name || 'Lecturer TBA';
+    const imgSrc = lecturerImageSource(row);
+    modalBodyEl.innerHTML = `
+      <div class="rounded-xl border border-slate-200 bg-slate-50 p-4">
+        <div class="flex items-center gap-4">
+          <img src="${esc(imgSrc)}" alt="${esc(lecturerName)}" class="h-16 w-16 rounded-full border border-white object-cover shadow-sm" onerror="this.onerror=null;this.src='${esc(defaultLecturerAvatarDataUri())}';">
+          <div>
+            <p class="text-sm font-semibold text-slate-900">${esc(lecturerName)}</p>
+            <p class="text-xs text-slate-500">Lecturer</p>
+            <div class="mt-2 inline-flex rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-semibold text-blue-700">${esc(row.student_group || 'Unspecified')}</div>
+          </div>
+        </div>
+      </div>
+      <div class="mt-4 grid gap-3 text-sm text-gray-700 sm:grid-cols-2">
+        <div class="rounded-lg border border-gray-200 bg-white p-3"><p class="text-xs font-semibold uppercase tracking-wider text-gray-500">Course Name</p><p class="mt-1 font-semibold text-gray-900">${esc(row.course_name || '-')}</p></div>
+        <div class="rounded-lg border border-gray-200 bg-white p-3"><p class="text-xs font-semibold uppercase tracking-wider text-gray-500">Programme</p><p class="mt-1">${esc(row.student_group || 'Unspecified')}</p></div>
+        <div class="rounded-lg border border-gray-200 bg-white p-3"><p class="text-xs font-semibold uppercase tracking-wider text-gray-500">Class / Block / Auditorium</p><p class="mt-1">${esc(row.hall_name || 'No hall')}</p></div>
+        <div class="rounded-lg border border-gray-200 bg-white p-3"><p class="text-xs font-semibold uppercase tracking-wider text-gray-500">Lecturer Name</p><p class="mt-1">${esc(lecturerName)}</p></div>
+        <div class="rounded-lg border border-gray-200 bg-white p-3"><p class="text-xs font-semibold uppercase tracking-wider text-gray-500">Time</p><p class="mt-1">${esc(to12Hour(row.start_time))} - ${esc(to12Hour(row.end_time))}</p></div>
+        <div class="rounded-lg border border-gray-200 bg-white p-3"><p class="text-xs font-semibold uppercase tracking-wider text-gray-500">Class Duration</p><p class="mt-1">${esc(durationLabel(row.start_time, row.end_time))}</p></div>
+      </div>
+    `;
+    modalEl.classList.remove('hidden');
+    modalEl.classList.add('flex');
+  }
+
+  function closeEventModal() {
+    if (!modalEl) return;
+    modalEl.classList.add('hidden');
+    modalEl.classList.remove('flex');
+  }
+
+  function formatDateKey(date) {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
+  function extractFacet(row) {
+    const groupRaw = String(row.student_group || '').trim().toUpperCase();
+    let programme = groupRaw;
+    let level = '';
+    const m = groupRaw.match(/^(.*?)(\d)\s*$/);
+    if (m) {
+      programme = m[1].trim();
+      level = `Level ${m[2]}00`;
+    }
+    const semesterRaw = String(row.semester || '').trim();
+    const y = semesterRaw.match(/\b(20\d{2})\b/);
+    const year = y ? y[1] : '';
+    return { programme, level, year };
+  }
+
+  function matchesFilter(row) {
+    const courseQ = (filterCourse && filterCourse.value ? filterCourse.value : '').trim().toLowerCase();
+    const levelQ = (filterLevel && filterLevel.value ? filterLevel.value : '').trim().toLowerCase();
+    const hallQ = (filterHall && filterHall.value ? filterHall.value : '').trim().toLowerCase();
+    const facets = extractFacet(row);
+    const c =
+      !courseQ ||
+      (courseQ === 'unspecified' && !String(facets.programme || '').trim()) ||
+      String(facets.programme || '').toLowerCase() === courseQ;
+    const l = !levelQ || String(facets.level || '').toLowerCase() === levelQ;
+    const h = !hallQ || String(row.hall_name || '').toLowerCase().includes(hallQ);
+    return c && l && h;
+  }
+
+  function buildMonthEvents(filteredRows, monthDate) {
+    const year = monthDate.getFullYear();
+    const month = monthDate.getMonth();
+    const first = new Date(year, month, 1);
+    const last = new Date(year, month + 1, 0);
+    const eventsByDate = new Map();
+
+    for (let day = 1; day <= last.getDate(); day += 1) {
+      const date = new Date(year, month, day);
+      const jsDay = date.getDay();
+      const bucket = filteredRows.filter((row) => timetableDayToJsDay(row.day_of_week) === jsDay);
+      if (bucket.length > 0) {
+        eventsByDate.set(formatDateKey(date), bucket);
+      }
+    }
+    return { first, last, eventsByDate };
+  }
+
+  function renderCalendar() {
+    const filtered = rows.filter(matchesFilter);
+    const decorated = filtered.map((row, idx) => ({ ...row, __idx: idx }));
+    visibleRows = decorated;
+    const { first, last, eventsByDate } = buildMonthEvents(decorated, currentMonth);
+    const monthTitle = first.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    if (monthLabelEl) monthLabelEl.textContent = monthTitle;
+    const selectedCourse = filterCourse && filterCourse.value ? filterCourse.value : 'All courses/programmes';
+    const selectedLevel = filterLevel && filterLevel.value ? filterLevel.value : 'All levels';
+    if (metaEl) metaEl.textContent = `${selectedCourse} · ${selectedLevel} · ${filtered.length} recurring entries in ${monthTitle}`;
+
+    const dayHeaders = weekHeadings.map((d) => `<div class="border-b bg-gray-50 px-3 py-2 text-center text-[11px] font-semibold uppercase tracking-wider text-gray-500">${d}</div>`).join('');
+    const leading = first.getDay();
+    const totalCells = Math.ceil((leading + last.getDate()) / 7) * 7;
+    const todayKey = formatDateKey(new Date());
+    let cellsHtml = '';
+    for (let i = 0; i < totalCells; i += 1) {
+      const dateNumber = i - leading + 1;
+      if (dateNumber < 1 || dateNumber > last.getDate()) {
+        cellsHtml += `<article class="min-h-[120px] border-b border-r bg-gray-50/50 p-2"></article>`;
+        continue;
+      }
+      const date = new Date(first.getFullYear(), first.getMonth(), dateNumber);
+      const key = formatDateKey(date);
+      const entries = eventsByDate.get(key) || [];
+      const eventChips = entries
+        .slice(0, 3)
+        .map((entry, idx) => {
+          const tone = toneClasses[idx % toneClasses.length];
+          const timeLabel = `${to12Hour(entry.start_time)}-${to12Hour(entry.end_time)}`;
+          return `<button type="button" class="timetable-event-trigger mt-1 w-full rounded px-1.5 py-1 text-left text-[10px] font-medium ${tone}" data-event-idx="${entry.__idx}">${esc(entry.course_name || '-')} · ${esc(entry.hall_name || 'No hall')} · ${esc(timeLabel)}</button>`;
+        })
+        .join('');
+      const overflow = entries.length > 3 ? `<p class="mt-1 text-[10px] font-medium text-gray-500">+${entries.length - 3} more</p>` : '';
+      const dayBubble = key === todayKey
+        ? `<span class="inline-flex h-6 w-6 items-center justify-center rounded-full bg-knustGold text-[11px] font-semibold text-black">${dateNumber}</span>`
+        : `<span class="text-[11px] font-semibold text-gray-700">${dateNumber}</span>`;
+      cellsHtml += `
+        <article class="min-h-[120px] border-b border-r bg-white p-2">
+          <div class="flex items-center justify-between">${dayBubble}</div>
+          ${eventChips || '<p class="mt-3 text-[10px] text-gray-300">No class</p>'}
+          ${overflow}
+        </article>
+      `;
+    }
+    gridEl.className = 'overflow-x-auto rounded-xl border border-gray-200 bg-white';
+    gridEl.innerHTML = `
+      <div class="grid min-w-[900px] grid-cols-7">
+        ${dayHeaders}
+        ${cellsHtml}
+      </div>
+    `;
+
+    if (eventListEl) {
+      const byCourse = [...decorated].sort((a, b) => String(a.course_name || '').localeCompare(String(b.course_name || '')));
+      eventListEl.innerHTML = byCourse
+        .slice(0, 120)
+        .map((row) => {
+          const weekday = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][Number(row.day_of_week)] || '-';
+          return `
+            <button type="button" class="timetable-event-trigger w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-left" data-event-idx="${row.__idx}">
+              <p class="text-xs font-semibold text-gray-800">${esc(row.course_name || '-')}</p>
+              <p class="mt-0.5 text-[10px] font-medium text-gray-500">${esc(row.student_group || 'Unspecified')}</p>
+              <p class="mt-0.5 text-[11px] text-gray-600">${esc(row.hall_name || '-')}</p>
+              <p class="mt-0.5 text-[10px] text-gray-500">${weekday} · ${esc(to12Hour(row.start_time))} - ${esc(to12Hour(row.end_time))} · ${esc(row.lecturer_name || 'Lecturer TBA')}</p>
+            </button>
+          `;
+        })
+        .join('');
+    }
+
+    if (weeklyGridEl) {
+      const weekdayRows = [
+        { label: 'Monday', value: 0 },
+        { label: 'Tuesday', value: 1 },
+        { label: 'Wednesday', value: 2 },
+        { label: 'Thursday', value: 3 },
+        { label: 'Friday', value: 4 },
+      ];
+      const slotLabels = [...new Set(decorated.map((r) => `${r.start_time || '--:--'}-${r.end_time || '--:--'}`))].sort((a, b) =>
+        a.localeCompare(b),
+      );
+      if (slotLabels.length === 0) {
+        weeklyGridEl.className = 'mt-3 rounded-xl border border-gray-200 bg-white p-3 text-sm text-gray-600';
+        weeklyGridEl.textContent = 'No timetable records match your current filters.';
+      } else {
+        const slotToEntries = new Map();
+        decorated.forEach((row) => {
+          const key = `${row.day_of_week}__${row.start_time || '--:--'}-${row.end_time || '--:--'}`;
+          if (!slotToEntries.has(key)) slotToEntries.set(key, []);
+          slotToEntries.get(key).push(row);
+        });
+        const header = slotLabels
+          .map((s) => {
+            const parts = String(s).split('-');
+            return `<th class="px-3 py-2">${esc(to12Hour(parts[0]))} - ${esc(to12Hour(parts[1]))}</th>`;
+          })
+          .join('');
+        const body = weekdayRows
+          .map((day) => {
+            const cols = slotLabels
+              .map((slot) => {
+                const key = `${day.value}__${slot}`;
+                const entries = slotToEntries.get(key) || [];
+                if (entries.length === 0) {
+                  return `<td class="px-2 py-2 align-top"><div class="rounded-md border border-dashed border-gray-200 bg-gray-50 px-2 py-2 text-[11px] text-gray-400">No class</div></td>`;
+                }
+                const html = entries
+                  .map(
+                    (e) => `<button type="button" class="timetable-event-trigger mb-1 w-full rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-left" data-event-idx="${e.__idx}">
+                        <p class="text-[11px] font-semibold text-blue-900">${esc(e.course_name || '-')}</p>
+                        <p class="text-[10px] text-blue-700">${esc(e.hall_name || 'No hall')}</p>
+                        <p class="text-[10px] text-blue-600">${esc(e.lecturer_name || 'Lecturer TBA')}</p>
+                      </button>`,
+                  )
+                  .join('');
+                return `<td class="px-2 py-2 align-top">${html}</td>`;
+              })
+              .join('');
+            return `<tr class="border-b last:border-b-0"><th class="whitespace-nowrap px-3 py-2 text-left text-[11px] font-semibold text-slate-600">${day.label}</th>${cols}</tr>`;
+          })
+          .join('');
+        weeklyGridEl.className = 'mt-3 overflow-x-auto rounded-xl border border-gray-200 bg-white';
+        weeklyGridEl.innerHTML = `
+          <table class="min-w-full text-left text-xs text-gray-700">
+            <thead class="bg-gray-50 text-[11px] uppercase tracking-wider text-gray-500">
+              <tr><th class="px-3 py-2">Day</th>${header}</tr>
+            </thead>
+            <tbody>${body}</tbody>
+          </table>
+        `;
+      }
+    }
+  }
+
+  function populateFacetFilters() {
+    const programmes = new Set();
+    const levels = new Set();
+    rows.forEach((r) => {
+      const f = extractFacet(r);
+      if (f.programme) programmes.add(f.programme);
+      if (f.level) levels.add(f.level);
+    });
+    if (filterCourse) {
+      const sortedProgrammes = [...programmes].sort((a, b) => a.localeCompare(b));
+      filterCourse.innerHTML = ['<option value="">All courses/programmes</option>']
+        .concat(
+          sortedProgrammes.length > 0
+            ? sortedProgrammes.map((p) => `<option value="${p.toLowerCase()}">${p}</option>`)
+            : ['<option value="unspecified">Unspecified (re-upload timetable)</option>'],
+        )
+        .join('');
+    }
+    if (filterLevel) {
+      filterLevel.innerHTML = ['<option value="">All levels</option>']
+        .concat([...levels].sort((a, b) => a.localeCompare(b)).map((l) => `<option value="${l.toLowerCase()}">${l}</option>`))
+        .join('');
+    }
+  }
+
+  async function loadRows() {
+    gridEl.className = 'mt-4 rounded-xl border border-gray-200 bg-white p-3 text-sm text-gray-600';
+    gridEl.textContent = 'Loading calendar...';
+    try {
+      const me = await authFetch('/auth/me');
+      if (!me || me.role !== 'staff') {
+        clearToken();
+        window.location.href = '/staff/login.html';
+        return;
+      }
+      rows = await authFetch('/staff/fixed-timetable');
+      if (!Array.isArray(rows)) rows = [];
+      populateFacetFilters();
+      renderCalendar();
+    } catch (e) {
+      gridEl.className = 'mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700';
+      gridEl.textContent = e.message || 'Could not load timetable.';
+    }
+  }
+
+  if (refreshBtn) refreshBtn.addEventListener('click', () => void loadRows());
+  if (prevMonthBtn) {
+    prevMonthBtn.addEventListener('click', () => {
+      currentMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1);
+      renderCalendar();
+    });
+  }
+  if (nextMonthBtn) {
+    nextMonthBtn.addEventListener('click', () => {
+      currentMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1);
+      renderCalendar();
+    });
+  }
+  if (todayBtn) {
+    todayBtn.addEventListener('click', () => {
+      currentMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+      renderCalendar();
+    });
+  }
+  if (filterCourse) filterCourse.addEventListener('change', renderCalendar);
+  if (filterLevel) filterLevel.addEventListener('change', renderCalendar);
+  if (filterHall) filterHall.addEventListener('input', renderCalendar);
+  if (gridEl) {
+    gridEl.addEventListener('click', (event) => {
+      const target = event.target.closest('.timetable-event-trigger');
+      if (!target) return;
+      openEventModalByIndex(target.dataset.eventIdx);
+    });
+  }
+  if (eventListEl) {
+    eventListEl.addEventListener('click', (event) => {
+      const target = event.target.closest('.timetable-event-trigger');
+      if (!target) return;
+      openEventModalByIndex(target.dataset.eventIdx);
+    });
+  }
+  if (weeklyGridEl) {
+    weeklyGridEl.addEventListener('click', (event) => {
+      const target = event.target.closest('.timetable-event-trigger');
+      if (!target) return;
+      openEventModalByIndex(target.dataset.eventIdx);
+    });
+  }
+  if (modalCloseBtn) modalCloseBtn.addEventListener('click', closeEventModal);
+  if (modalEl) {
+    modalEl.addEventListener('click', (event) => {
+      if (event.target === modalEl) closeEventModal();
+    });
+  }
+  await loadRows();
+}
+
+window.AudiFiApp = {
+  setupLoginPage,
+  setupLecturerLoginPage,
+  setupStudentDiscoveryPortal,
+  setupStaffPortal,
+  setupAvailableHallsPage,
+  setupTimetableUploadPage,
+  setupTimetableCalendarPage,
+};

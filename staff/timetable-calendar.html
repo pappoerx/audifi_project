@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AudiFi | Timetable Calendar</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: { knustGold: '#ffcc00', knustBlue: '#0B3A6E', knustMint: '#E8F1F0' },
+          boxShadow: { soft: '0 12px 40px rgba(15, 23, 42, 0.08)' },
+        },
+      },
+    };
+  </script>
+</head>
+<body class="min-h-screen bg-knustMint font-sans text-gray-800 antialiased">
+  <div class="flex min-h-screen">
+    <aside id="sidebar" class="hidden w-72 flex-col border-r border-[#123f73] bg-knustBlue text-blue-50 shadow-soft md:sticky md:top-0 md:flex md:h-screen md:self-start md:overflow-hidden">
+      <div class="border-b border-white/15 px-5 py-5">
+        <div class="rounded-2xl border border-white/20 bg-white/10 px-4 py-4">
+          <div class="flex items-center gap-3">
+            <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-knustGold text-xs font-bold text-black">AF</div>
+            <div>
+              <h1 class="text-base font-semibold text-white">AudiFi</h1>
+              <p class="text-xs text-blue-100">Staff Operations Portal</p>
+            </div>
+          </div>
+          <p class="mt-3 inline-flex rounded-full bg-knustGold/20 px-2.5 py-1 text-[11px] font-semibold text-knustGold">Role: Staff / Lecturer</p>
+        </div>
+      </div>
+      <nav class="flex-1 overflow-y-auto px-4 py-6 space-y-5">
+        <div class="space-y-2">
+          <p class="px-2 text-[11px] font-semibold uppercase tracking-wider text-blue-200">Operations</p>
+          <a href="/staff/dashboard.html" class="flex w-full items-center gap-3 rounded-xl px-4 py-2.5 text-sm font-medium text-blue-50 transition hover:bg-white/10"><span aria-hidden="true" class="inline-flex h-4 w-4 items-center justify-center"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg></span> Dashboard Overview</a>
+          <a href="/staff/book-auditorium.html" class="flex w-full items-center gap-3 rounded-xl px-4 py-2.5 text-sm font-medium text-blue-50 transition hover:bg-white/10"><span aria-hidden="true" class="inline-flex h-4 w-4 items-center justify-center"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg></span> Book an Auditorium</a>
+          <a href="/staff/manage-bookings.html" class="flex w-full items-center gap-3 rounded-xl px-4 py-2.5 text-sm font-medium text-blue-50 transition hover:bg-white/10"><span aria-hidden="true" class="inline-flex h-4 w-4 items-center justify-center"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4"><path d="M7 3h10v18l-2-1-2 1-2-1-2 1-2-1z"/><path d="M9 8h6M9 12h6M9 16h4"/></svg></span> Manage Bookings</a>
+        </div>
+        <div class="space-y-2">
+          <p class="px-2 text-[11px] font-semibold uppercase tracking-wider text-blue-200">Insights</p>
+          <a href="/staff/analytics.html" class="flex w-full items-center gap-3 rounded-xl px-4 py-2.5 text-sm font-medium text-blue-50 transition hover:bg-white/10"><span aria-hidden="true" class="inline-flex h-4 w-4 items-center justify-center"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4"><path d="M4 19h16"/><path d="m6 15 4-4 3 3 5-6"/></svg></span> Analytics</a>
+          <a href="/staff/activity-feed.html" class="flex w-full items-center gap-3 rounded-xl px-4 py-2.5 text-sm font-medium text-blue-50 transition hover:bg-white/10"><span aria-hidden="true" class="inline-flex h-4 w-4 items-center justify-center"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span> Activity Feed</a>
+          <a href="/staff/timetable-calendar.html" class="flex w-full items-center gap-3 rounded-xl bg-knustGold px-4 py-2.5 text-sm font-semibold text-knustBlue"><span aria-hidden="true" class="inline-flex h-4 w-4 items-center justify-center"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4"><path d="M3 7h7l2 2h9v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M3 7V5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2"/></svg></span> Timetable Calendar</a>
+        </div>
+      </nav>
+      <div class="px-6 pb-6 space-y-2">
+        <a href="/home_page.html" class="flex items-center justify-center gap-2 rounded-lg border border-white/30 bg-white/10 px-4 py-2 text-sm font-semibold text-white hover:bg-white/20"><span aria-hidden="true" class="inline-flex h-4 w-4 items-center justify-center"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4"><path d="m2 10 10-5 10 5-10 5z"/><path d="M6 12v4c0 1.5 3 3 6 3s6-1.5 6-3v-4"/></svg></span> Student Home</a>
+        <button id="signOutBtn" class="w-full rounded-lg bg-knustGold px-4 py-2 text-sm font-semibold text-black hover:bg-yellow-500">Sign Out</button>
+      </div>
+    </aside>
+    <div class="flex flex-1 flex-col">
+      <header class="flex items-center justify-between border-b border-[#123f73] bg-knustBlue px-4 py-4 text-white md:px-8">
+        <div class="flex items-center gap-3">
+          <button id="menuToggle" class="md:hidden inline-flex items-center justify-center rounded-lg p-2 text-white hover:bg-white/10"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-5 w-5"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+          <div>
+            <h2 class="text-lg font-semibold text-white">Timetable Calendar</h2>
+            <p class="text-sm text-blue-100" id="staffInfo">Month view preview for fixed teaching sessions</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-2">
+          <a href="/staff/upload-timetable.html" class="inline-flex rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 transition hover:bg-gray-50">Upload source file</a>
+          <button id="timetableRefreshBtn" class="inline-flex rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 transition hover:bg-gray-50">Refresh</button>
+        </div>
+      </header>
+      <main class="flex-1 overflow-y-auto p-4 md:p-8">
+        <section class="grid gap-6 xl:grid-cols-[280px,1fr]">
+          <aside class="rounded-2xl border border-white/60 bg-white/85 p-4 shadow-soft">
+            <h3 class="text-sm font-semibold uppercase tracking-wider text-gray-600">All timetable events</h3>
+            <p id="timetableCalendarMeta" class="mt-1 text-xs text-gray-500">Loading timetable...</p>
+            <div class="mt-4 space-y-2">
+              <select id="timetableFilterCourse" class="block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 focus:border-knustGold focus:outline-none focus:ring-2 focus:ring-knustGold/30">
+                <option value="">All courses/programmes</option>
+              </select>
+              <select id="timetableFilterLevel" class="block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 focus:border-knustGold focus:outline-none focus:ring-2 focus:ring-knustGold/30">
+                <option value="">All levels</option>
+              </select>
+              <input id="timetableFilterHall" type="text" placeholder="Filter by hall" class="block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 focus:border-knustGold focus:outline-none focus:ring-2 focus:ring-knustGold/30">
+            </div>
+            <div id="timetableEventList" class="mt-4 max-h-[70vh] space-y-2 overflow-y-auto pr-1"></div>
+          </aside>
+          <div class="rounded-2xl border border-white/60 bg-white/85 p-4 shadow-soft md:p-6">
+            <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div class="inline-flex items-center rounded-lg border border-gray-200 bg-white p-1">
+                <button id="calendarPrevMonthBtn" class="rounded-md px-3 py-1.5 text-sm font-semibold text-gray-600 hover:bg-gray-100">‹</button>
+                <button id="calendarNextMonthBtn" class="rounded-md px-3 py-1.5 text-sm font-semibold text-gray-600 hover:bg-gray-100">›</button>
+                <button id="calendarTodayBtn" class="ml-1 rounded-md bg-knustGold px-3 py-1.5 text-xs font-semibold text-black hover:bg-yellow-500">Today</button>
+              </div>
+              <h3 id="calendarMonthLabel" class="text-lg font-semibold text-gray-800">Month</h3>
+            </div>
+            <div id="timetableCalendarGrid" class="rounded-xl border border-gray-200 bg-white p-3 text-sm text-gray-600">Loading calendar...</div>
+            <div class="mt-6">
+              <h4 class="text-sm font-semibold uppercase tracking-wider text-gray-600">Weekly Timetable Grid (Selected Filter)</h4>
+              <p class="mt-1 text-xs text-gray-500">Shows each day and time slot, including explicit “No class” cells.</p>
+              <div id="timetableWeeklyGrid" class="mt-3 rounded-xl border border-gray-200 bg-white p-3 text-sm text-gray-600">Loading weekly grid...</div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+  <div id="timetableEventModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/45 p-4">
+    <div class="w-full max-w-2xl rounded-2xl border border-gray-200 bg-white p-5 shadow-2xl">
+      <div class="flex items-start justify-between gap-3 border-b border-gray-100 pb-3">
+        <div>
+          <h3 class="text-lg font-semibold text-gray-900">Class Details</h3>
+          <p class="text-xs text-gray-500">Timetable event information</p>
+        </div>
+        <button id="timetableEventModalClose" class="rounded-md border border-gray-200 px-2 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50">Close</button>
+      </div>
+      <div id="timetableEventModalBody" class="mt-4"></div>
+    </div>
+  </div>
+  <script>window.AUDIFI_API_BASE = 'http://127.0.0.1:8000';</script>
+  <script src="../script.js" defer></script>
+  <script src="../staff_app.js" defer></script>
+</body>
+</html>

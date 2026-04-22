@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AudiFi | Available Halls</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-[#E8F1F0] font-sans text-gray-800 antialiased">
+  <main class="mx-auto w-full max-w-5xl px-4 py-8 md:px-6">
+    <section class="rounded-2xl border border-white/60 bg-white/70 p-6 shadow-xl">
+      <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p class="text-xs font-semibold uppercase tracking-wider text-gray-500">AudiFi Live Discovery</p>
+          <h1 class="mt-1 text-2xl font-semibold text-gray-900 md:text-3xl">Available Halls</h1>
+          <p id="availableHallsCount" class="mt-2 text-sm text-gray-600">0 halls available now</p>
+        </div>
+        <button id="backToDashboardBtn" class="rounded-xl bg-[#ffcc00] px-4 py-2.5 text-sm font-semibold text-black transition hover:bg-yellow-500">
+          Back to Dashboard
+        </button>
+      </div>
+    </section>
+    <section id="availableHallsList" class="mt-6 grid gap-4 sm:grid-cols-2"></section>
+  </main>
+  <script>window.AUDIFI_API_BASE = 'http://127.0.0.1:8000';</script>
+  <script src="/script.js" defer></script>
+  <script src="/student_app.js" defer></script>
+</body>
+</html>
