@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AudiFi | Seat Lookup</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: { knustGold: '#ffcc00', knustBlue: '#0B3A6E', knustMint: '#E8F1F0' },
+          boxShadow: { soft: '0 12px 40px rgba(15, 23, 42, 0.08)' },
+        },
+      },
+    };
+  </script>
+  <style>
+    @media print {
+      body * { visibility: hidden; }
+      #printArea, #printArea * { visibility: visible; }
+      #printArea { position: absolute; left: 0; top: 0; width: 100%; }
+    }
+  </style>
+</head>
+<body class="min-h-screen bg-knustMint font-sans text-slate-800 antialiased">
+  <div class="mx-auto flex min-h-screen max-w-2xl flex-col px-4 py-12">
+    <header class="mb-10 text-center">
+      <p class="text-xs font-semibold uppercase tracking-widest text-knustBlue/80">AudiFi</p>
+      <h1 class="mt-2 text-2xl font-bold text-knustBlue">Exam seat lookup</h1>
+      <p class="mt-2 text-sm text-slate-600">Enter your index or reference number to view your seating details.</p>
+    </header>
+
+    <form id="seatLookupForm" class="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-soft">
+      <div class="space-y-4">
+        <div>
+          <label for="seatLookupIndex" class="block text-xs font-semibold uppercase tracking-wider text-slate-500">Index / reference number</label>
+          <input id="seatLookupIndex" name="q" type="text" inputmode="numeric" autocomplete="off" required
+            placeholder="Your student index"
+            class="mt-1 block w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none ring-knustBlue/20 focus:border-knustBlue focus:ring-2">
+        </div>
+        <button type="submit" id="seatLookupSubmit"
+          class="w-full rounded-xl bg-knustBlue py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0a3260]">
+          Find my seat
+        </button>
+      </div>
+    </form>
+
+    <div id="seatLookupMessage" class="mt-6 hidden rounded-xl border px-4 py-3 text-sm"></div>
+
+    <div id="printArea" class="mt-6 hidden space-y-4">
+      <div id="seatLookupVisual" role="region" aria-label="Hall seat map. Your seat is highlighted."></div>
+      <div id="seatLookupCard" class="overflow-hidden rounded-2xl shadow-2xl shadow-slate-900/20"></div>
+      <div class="mt-4 flex flex-wrap justify-center gap-3 print:hidden">
+        <button type="button" id="seatLookupPrintBtn"
+          class="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+          Print seating details
+        </button>
+      </div>
+    </div>
+
+    <p class="mt-10 text-center text-xs text-slate-500">
+      If your seat is not found, confirm your index with the exam office or use the link they shared (some lists use a program filter in the URL).
+    </p>
+  </div>
+
+  <script>window.AUDIFI_API_BASE = 'http://127.0.0.1:8000';</script>
+  <script src="/script.js" defer></script>
+  <script defer>
+    document.addEventListener('DOMContentLoaded', () => {
+      if (window.AudiFiApp && typeof AudiFiApp.setupSeatLookupPage === 'function') {
+        void AudiFiApp.setupSeatLookupPage();
+      }
+    });
+  </script>
+</body>
+</html>

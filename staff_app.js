@@ -4,4 +4,5 @@ document.addEventListener('DOMContentLoaded', () => {
   void window.AudiFiApp.setupStaffPortal();
   void window.AudiFiApp.setupTimetableUploadPage();
   void window.AudiFiApp.setupTimetableCalendarPage();
+  void window.AudiFiApp.setupSeatingArrangementPage();
 });

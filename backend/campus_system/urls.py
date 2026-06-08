@@ -10,6 +10,10 @@ from campus_system.staff_api import (
     fixed_timetable_list,
     fixed_timetable_upload,
     halls_availability_for_slot,
+    public_seating_lookup,
+    seating_assignment_lookup,
+    seating_assignments_list,
+    seating_assignments_upload,
     staff_analytics,
     time_slots_list,
 )
@@ -41,6 +45,7 @@ urlpatterns = [
     # Backward-compatible routes used by current frontend
     path("auth/login", auth_login),
     path("auth/me", auth_me),
+    path("public/seating-lookup", public_seating_lookup),
     path("halls", halls_list),
     path("courses", courses_list),
     path("time-slots", time_slots_list),
@@ -67,5 +72,11 @@ urlpatterns = [
     path("staff/bookings/<int:booking_id>/cancel", cancel_booking),
     path("staff/bookings/<int:booking_id>/call-off", call_off_booking),
     path("staff/analytics", staff_analytics),
+    path("seating-assignments", seating_assignments_list),
+    path("seating-assignments/upload", seating_assignments_upload),
+    path("seating-assignments/lookup", seating_assignment_lookup),
+    path("staff/seating-assignments", seating_assignments_list),
+    path("staff/seating-assignments/upload", seating_assignments_upload),
+    path("staff/seating-assignments/lookup", seating_assignment_lookup),
     path("api/bookings/", include("bookings.urls")),
 ]

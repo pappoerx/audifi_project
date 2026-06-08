@@ -1,15 +1,19 @@
 import csv
 import io
 import re
+from collections import defaultdict
 from datetime import datetime, timedelta
+from typing import Optional, Tuple
 
 from django.contrib.auth import authenticate
+from django.db import transaction
+from django.db.models import Max
 from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
 from activity.models import ActivityEvent, ActivityType
-from bookings.models import Course, TimeSlot, TutorialBooking, TutorialBookingStatus
+from bookings.models import Course, SeatingAssignment, TimeSlot, TutorialBooking, TutorialBookingStatus
 from bookings.services import check_hall_availability, official_conflict, tutorial_conflict
 from halls.models import Hall
 from reports.models import IssueReport
@@ -17,6 +21,39 @@ from timetable.models import OfficialClass, WeekDay
 from users.models import User, UserRole, UserToken
 
 from .auth import parse_json_body, require_bearer_auth
+
+
+def _refresh_tutorial_booking_statuses():
+    """
+    Keep tutorial booking lifecycle in sync with current local time.
+    - Any active booking in the past is marked completed.
+    - Any active booking currently running is marked in_session.
+    """
+    now = timezone.localtime()
+    today = now.date()
+    now_time = now.time()
+    active_statuses = [TutorialBookingStatus.BOOKED, TutorialBookingStatus.IN_SESSION]
+
+    # Past dates are always completed.
+    TutorialBooking.objects.filter(
+        booking_date__lt=today,
+        status__in=active_statuses,
+    ).update(status=TutorialBookingStatus.COMPLETED)
+
+    # Today's bookings that already ended are completed.
+    TutorialBooking.objects.filter(
+        booking_date=today,
+        time_slot__end_time__lte=now_time,
+        status__in=active_statuses,
+    ).update(status=TutorialBookingStatus.COMPLETED)
+
+    # Today's active window is in_session.
+    TutorialBooking.objects.filter(
+        booking_date=today,
+        time_slot__start_time__lte=now_time,
+        time_slot__end_time__gt=now_time,
+        status=TutorialBookingStatus.BOOKED,
+    ).update(status=TutorialBookingStatus.IN_SESSION)
 
 
 def _serialize_user(user):
@@ -74,6 +111,7 @@ def auth_me(request):
 @require_GET
 @require_bearer_auth()
 def halls_list(request):
+    _refresh_tutorial_booking_statuses()
     halls = Hall.objects.filter(is_active=True).order_by("name")
     only_available = request.GET.get("available_now") == "true"
     now = timezone.localtime()
@@ -583,6 +621,632 @@ def fixed_timetable_upload(request):
     )
 
 
+def _seat_column_analysis(parsed_rows: list) -> Tuple[list, int, int]:
+    """
+    From assigned seats, summarize each physical column: how many students
+    and deepest row index (useful for merged-cell column layouts like PDF exports).
+    """
+    if not parsed_rows:
+        return [], 0, 0
+    stats = defaultdict(lambda: {"seat_count": 0, "max_row": 0})
+    for p in parsed_rows:
+        c = int(p["column_number"])
+        r = int(p["row_number"])
+        stats[c]["seat_count"] += 1
+        stats[c]["max_row"] = max(stats[c]["max_row"], r)
+    items = [
+        {"column_number": k, "seat_count": v["seat_count"], "max_row_depth": v["max_row"]}
+        for k, v in sorted(stats.items(), key=lambda x: x[0])
+    ]
+    max_col = max(stats.keys()) if stats else 0
+    deepest = max((v["max_row"] for v in stats.values()), default=0)
+    return items, max_col, deepest
+
+
+def _seat_label_from_row_col(row_number: int, column_number: int) -> str:
+    """
+    Human-readable seat from grid coordinates. Uses row then column as numbers
+    (e.g. row 1, column 10 → "1-10") so the label matches the Row / Column fields
+    on slips and lookup — not a separate letter scheme (old: row→A + col→10).
+    """
+    return f"{int(row_number)}-{int(column_number)}"
+
+
+def _fallback_student_index(raw: dict) -> str:
+    """
+    Recover exam index when the header row had blank cells (merged Excel headers),
+    so the Index column was never bound to a name.
+    """
+    if not isinstance(raw, dict) or not raw:
+        return ""
+    # Typical KNUST-style export: No., StudentID, Index No., Name, Column → index is usually __col_2
+    vs2 = str(raw.get("__col_2") or "").strip()
+    if re.match(r"^\d{6,12}$", vs2):
+        return vs2
+    for pref in ("__col_1", "__col_3"):
+        vs = str(raw.get(pref) or "").strip()
+        if re.match(r"^\d{6,12}$", vs):
+            return vs
+    for k, v in raw.items():
+        vs = "" if v is None else str(v).strip()
+        if not vs or not re.match(r"^\d{6,12}$", vs):
+            continue
+        ck = re.sub(r"[^a-z0-9]+", "", str(k or "").strip().lower())
+        if ck.startswith("__col"):
+            continue
+        if "column" in ck or ck in {"no", "num", "name", "fullname"}:
+            continue
+        if "index" in ck:
+            return vs
+    return ""
+
+
+def _parse_seating_upload(upload, file_name: str):
+    rows_data = []
+    headers = []
+    is_csv = file_name.endswith(".csv")
+    is_xlsx = file_name.endswith(".xlsx")
+    if not is_csv and not is_xlsx:
+        raise ValueError("Only CSV and XLSX files are supported.")
+
+    def _canon(s: str) -> str:
+        return re.sub(r"[^a-z0-9]+", "", str(s or "").strip().lower())
+
+    def _is_seating_header_row(cells) -> bool:
+        tokens = {_canon(x) for x in (cells or []) if str(x or "").strip()}
+        if not tokens:
+            return False
+        index_tokens = {
+            "studentindex",
+            "studentid",
+            "studentidindexno",
+            "studentidindexnumber",
+            "studentidindexno.",
+            "index",
+            "indexno",
+            "indexnumber",
+            "referencenumber",
+            "student_index",
+        }
+        return bool(tokens.intersection({_canon(x) for x in index_tokens}))
+
+    def _extract_program_hint(text: str) -> str:
+        token = str(text or "").strip().upper()
+        if not token:
+            return ""
+        # Capture common program labels seen in exports/titles.
+        if "LOGISTICS" in token:
+            return "LOGISTICS"
+        if "BIT" in token:
+            return "BIT"
+        return ""
+
+    def _resolve_program_hint(sheet_name: str, pre_header_rows) -> str:
+        # Prefer explicit header/title rows above the table, then fall back to sheet name.
+        for row in pre_header_rows:
+            for cell in row:
+                p = _extract_program_hint(cell)
+                if p:
+                    return p
+        return _extract_program_hint(sheet_name)
+
+    if is_csv:
+        try:
+            upload.file.seek(0)
+            text_stream = io.TextIOWrapper(upload.file, encoding="utf-8-sig")
+            raw_rows = list(csv.reader(text_stream))
+            if not raw_rows:
+                return [], []
+            header_idx = 0
+            for i, row in enumerate(raw_rows[:25]):
+                if _is_seating_header_row(row):
+                    header_idx = i
+                    break
+            program_hint = _resolve_program_hint(file_name, raw_rows[: header_idx + 1])
+            raw_headers = [str(x).strip() if x is not None else "" for x in raw_rows[header_idx]]
+            headers = [h if h else f"__col_{i}" for i, h in enumerate(raw_headers)]
+            for vals in raw_rows[header_idx + 1 :]:
+                row_map = {}
+                has_value = False
+                for i, h in enumerate(headers):
+                    val = vals[i] if i < len(vals) else None
+                    if val is not None and str(val).strip() != "":
+                        has_value = True
+                    row_map[h] = "" if val is None else str(val).strip()
+                if has_value:
+                    if program_hint:
+                        row_map["__sheet_program"] = program_hint
+                    rows_data.append(row_map)
+        except Exception as exc:
+            raise ValueError("Could not read uploaded CSV file.") from exc
+    else:
+        try:
+            from openpyxl import load_workbook
+        except Exception as exc:
+            raise RuntimeError("XLSX support requires openpyxl. Install dependencies and retry.") from exc
+        try:
+            upload.seek(0)
+            wb = load_workbook(upload, read_only=True, data_only=True)
+            for sheet in wb.worksheets:
+                all_rows = [[("" if v is None else str(v).strip()) for v in row] for row in sheet.iter_rows(values_only=True)]
+                if not all_rows:
+                    continue
+                header_idx = 0
+                for i, row in enumerate(all_rows[:25]):
+                    if _is_seating_header_row(row):
+                        header_idx = i
+                        break
+                program_hint = _resolve_program_hint(sheet.title, all_rows[: header_idx + 1])
+                raw_headers = [str(x).strip() if x is not None else "" for x in all_rows[header_idx]]
+                local_headers = [h if h else f"__col_{i}" for i, h in enumerate(raw_headers)]
+                if not headers:
+                    headers = local_headers
+                for row_vals in all_rows[header_idx + 1 :]:
+                    row_map = {}
+                    has_value = False
+                    for i, h in enumerate(local_headers):
+                        val = row_vals[i] if i < len(row_vals) else None
+                        if val is not None and str(val).strip() != "":
+                            has_value = True
+                        row_map[h] = "" if val is None else str(val).strip()
+                    if has_value:
+                        if program_hint:
+                            row_map["__sheet_program"] = program_hint
+                        rows_data.append(row_map)
+            if not rows_data:
+                return [], []
+        except Exception as exc:
+            raise ValueError("Could not read uploaded XLSX file.") from exc
+    return headers, rows_data
+
+
+def _build_seating_preview(
+    rows_data,
+    seats_per_row: int,
+    hall_capacity: Optional[int] = None,
+    program_filter: Optional[str] = None,
+):
+    parsed = []
+    errors = []
+    seen_indexes = set()
+    seen_slots = set()
+    sequential_counter = 0
+    per_column_row_counter = {}
+    skipped_program = 0
+    skipped_missing_student_index = 0
+    last_seat_column_fill = ""
+    uses_explicit_file_columns = False
+
+    def canonical_key(key: str) -> str:
+        return re.sub(r"[^a-z0-9]+", "", str(key or "").strip().lower())
+
+    # Only read seat row/column from clearly named headers so line counters (No., S/N, …)
+    # are never mistaken for seat row "1" on every data row.
+    _seat_row_header_canon = frozenset(
+        {"row", "rownumber", "rowno", "rownum", "seatrow", "seatrownumber", "seatrowno", "gridrow"}
+    )
+    _seat_col_header_canon = frozenset(
+        {"column", "col", "columnnumber", "columnno", "seatcolumn", "seatcol", "gridcol"}
+    )
+    _line_counter_header_canon = frozenset(
+        {"no", "num", "number", "sno", "serial", "sl", "lineno", "line", "itemno", "item", "sn"}
+    )
+
+    def pick_seat_row_raw(raw_map) -> str:
+        for k, v in raw_map.items():
+            ck = canonical_key(k)
+            if ck in _line_counter_header_canon:
+                continue
+            if ck in _seat_row_header_canon and str(v or "").strip():
+                return str(v).strip()
+        return ""
+
+    def pick_seat_column_raw(raw_map) -> str:
+        for k, v in raw_map.items():
+            ck = canonical_key(k)
+            if ck in _line_counter_header_canon:
+                continue
+            if ck in _seat_col_header_canon and str(v or "").strip():
+                return str(v).strip()
+        return ""
+
+    for idx, raw in enumerate(rows_data, start=2):
+        normalized = {str(k).strip().lower(): ("" if v is None else str(v).strip()) for k, v in raw.items()}
+        canonical = {canonical_key(k): ("" if v is None else str(v).strip()) for k, v in raw.items()}
+
+        def pick(*names):
+            for name in names:
+                val = normalized.get(name)
+                if val:
+                    return val
+                cval = canonical.get(canonical_key(name))
+                if cval:
+                    return cval
+            return ""
+
+        # Prefer exam index columns over generic student id (matches typical KNUST PDFs).
+        student_index = (
+            pick(
+                "index no",
+                "index_number",
+                "index no.",
+                "student_index",
+                "student id",
+                "studentid",
+                "student_id",
+                "student id index no",
+                "studentid index no",
+                "student index",
+                "index",
+                "reference_number",
+            )
+            or ""
+        ).strip()
+        full_name = pick("full_name", "full name", "name").strip()
+        program_val = pick(
+            "program",
+            "programme",
+            "course",
+            "class",
+            "degree",
+            "group",
+            "major",
+            "student_group",
+            "programme_name",
+            "__sheet_program",
+        ).strip()
+        zone = (pick("zone") or "MAIN").strip().upper()
+        fresh_seat_col = pick_seat_column_raw(raw).strip()
+        if fresh_seat_col:
+            last_seat_column_fill = fresh_seat_col
+        column_raw = (fresh_seat_col or last_seat_column_fill).strip()
+        if not column_raw:
+            for pref in ("__col_4", "__col_5", "__col_3"):
+                vq = str(raw.get(pref) or "").strip()
+                if vq and re.match(r"^[1-9]\d{0,2}$", vq):
+                    column_raw = vq
+                    break
+        row_raw = pick_seat_row_raw(raw).strip()
+        if not student_index:
+            student_index = _fallback_student_index(raw).strip()
+        if not student_index:
+            # Blank/footer rows in exports: skip without blocking save.
+            skipped_missing_student_index += 1
+            continue
+        if student_index in seen_indexes:
+            errors.append(f"Row {idx}: duplicate student_index '{student_index}'")
+            continue
+
+        if program_filter and program_filter.strip().upper() == "BIT":
+            if not program_val:
+                # PDF-style lists often have no Program column; treat whole sheet as BIT.
+                program_val = "BIT"
+            elif "BIT" not in program_val.upper():
+                skipped_program += 1
+                continue
+
+        has_explicit_column = bool(column_raw)
+        if has_explicit_column:
+            uses_explicit_file_columns = True
+        if has_explicit_column:
+            try:
+                column_number = int(column_raw)
+            except ValueError:
+                errors.append(f"Row {idx}: column must be numeric")
+                continue
+        else:
+            column_number = (sequential_counter % seats_per_row) + 1
+        if column_number < 1:
+            errors.append(f"Row {idx}: column must be 1 or greater")
+            continue
+        # seats_per_row is the wrap width for implicit layouts only. PDF/Excel lists with
+        # a Column field (merged cells 1, 2, 11, …) often exceed 10 or 20; depth per column
+        # is unlimited — do not cap column index by this setting.
+        if not has_explicit_column and column_number > seats_per_row:
+            errors.append(f"Row {idx}: column must be between 1 and {seats_per_row}")
+            continue
+
+        if row_raw:
+            try:
+                row_number = int(row_raw)
+            except ValueError:
+                errors.append(f"Row {idx}: row_number must be numeric")
+                continue
+        elif has_explicit_column:
+            key = (zone, column_number)
+            next_row = per_column_row_counter.get(key, 0) + 1
+            row_number = next_row
+            per_column_row_counter[key] = next_row
+        else:
+            row_number = (sequential_counter // seats_per_row) + 1
+        if row_number < 1:
+            errors.append(f"Row {idx}: row_number must be 1 or greater")
+            continue
+
+        if has_explicit_column and row_raw:
+            key = (zone, column_number)
+            per_column_row_counter[key] = max(per_column_row_counter.get(key, 0), row_number)
+
+        slot_key = (zone, row_number, column_number)
+        if slot_key in seen_slots:
+            errors.append(
+                f"Row {idx}: duplicate seat at {zone} row {row_number}, column {column_number}"
+            )
+            continue
+
+        seen_indexes.add(student_index)
+        seen_slots.add(slot_key)
+        if not has_explicit_column:
+            sequential_counter += 1
+
+        parsed.append(
+            {
+                "student_index": student_index,
+                "full_name": full_name,
+                "program": program_val,
+                "zone": zone,
+                "row_number": row_number,
+                "column_number": column_number,
+                "seat_label": _seat_label_from_row_col(row_number, column_number),
+            }
+        )
+
+    if hall_capacity is not None and hall_capacity > 0 and len(parsed) > hall_capacity:
+        errors.append(f"Hall capacity exceeded: {len(parsed)} valid seats for capacity {hall_capacity}")
+    if program_filter and program_filter.strip().upper() == "BIT" and not parsed and rows_data:
+        errors.append(
+            "BIT filter removed every row. If a Program column exists, each row must contain BIT; "
+            "otherwise leave Program cells empty so rows default to BIT."
+        )
+    meta = {
+        "rows_skipped_program_filter": skipped_program,
+        "rows_skipped_missing_student_index": skipped_missing_student_index,
+        "uses_explicit_file_columns": uses_explicit_file_columns,
+    }
+    return parsed, errors, meta
+
+
+@require_http_methods(["GET"])
+@require_bearer_auth(roles=[UserRole.STAFF, UserRole.TA, UserRole.ADMIN])
+def seating_assignments_list(request):
+    session_id = (request.GET.get("session_id") or "").strip()
+    hall_id = (request.GET.get("hall_id") or "").strip()
+    program_q = (request.GET.get("program") or "").strip()
+    rows = SeatingAssignment.objects.select_related("hall", "created_by").order_by(
+        "-created_at", "session_id", "zone", "row_number", "column_number"
+    )
+    if session_id:
+        rows = rows.filter(session_id=session_id)
+    if hall_id:
+        rows = rows.filter(hall_id=hall_id)
+    if program_q:
+        rows = rows.filter(program__icontains=program_q)
+
+    payload = [
+        {
+            "id": x.id,
+            "session_id": x.session_id,
+            "hall_id": x.hall_id,
+            "hall_name": x.hall.name if x.hall_id else "",
+            "student_index": x.student_index,
+            "full_name": x.full_name,
+            "program": x.program or "",
+            "row_number": x.row_number,
+            "column_number": x.column_number,
+            "seat_label": _seat_label_from_row_col(x.row_number, x.column_number),
+            "zone": x.zone,
+            "created_at": x.created_at.isoformat(),
+            "created_by": x.created_by.display_name or x.created_by.full_name or x.created_by.username,
+        }
+        for x in rows
+    ]
+    return JsonResponse(payload, safe=False)
+
+
+@require_http_methods(["POST"])
+@require_bearer_auth(roles=[UserRole.STAFF, UserRole.TA, UserRole.ADMIN])
+def seating_assignments_upload(request):
+    upload = request.FILES.get("file")
+    if not upload:
+        return JsonResponse({"detail": "Attach CSV/XLSX in 'file'."}, status=400)
+    session_id = (request.POST.get("session_id") or "").strip()
+    if not session_id:
+        return JsonResponse({"detail": "session_id is required."}, status=400)
+    seats_per_row_raw = (request.POST.get("seats_per_row") or "").strip() or "10"
+    try:
+        seats_per_row = int(seats_per_row_raw)
+    except ValueError:
+        return JsonResponse({"detail": "seats_per_row must be numeric."}, status=400)
+    if seats_per_row < 1 or seats_per_row > 200:
+        return JsonResponse({"detail": "seats_per_row must be between 1 and 200."}, status=400)
+    preview_only = str(request.POST.get("preview", "")).strip().lower() in {"1", "true", "yes", "on"}
+    replace_existing = str(request.POST.get("replace_existing", "")).strip().lower() in {"1", "true", "yes", "on"}
+
+    hall = None
+    hall_id = (request.POST.get("hall_id") or "").strip()
+    if hall_id:
+        hall = Hall.objects.filter(id=hall_id, is_active=True).first()
+        if not hall:
+            return JsonResponse({"detail": "Invalid hall_id."}, status=400)
+
+    try:
+        _, rows_data = _parse_seating_upload(upload, upload.name.lower())
+    except RuntimeError as err:
+        return JsonResponse({"detail": str(err)}, status=500)
+    except ValueError as err:
+        return JsonResponse({"detail": str(err)}, status=400)
+
+    program_filter = (request.POST.get("program_filter") or "").strip()
+    parsed, errors, filter_meta = _build_seating_preview(
+        rows_data,
+        seats_per_row,
+        hall.capacity if hall else None,
+        program_filter or None,
+    )
+    column_analysis, max_column_used, deepest_row = _seat_column_analysis(parsed)
+    zones = sorted({x["zone"] for x in parsed})
+    can_save = len(errors) == 0
+    if preview_only:
+        return JsonResponse(
+            {
+                "ok": True,
+                "preview": True,
+                "can_save": can_save,
+                "session_id": session_id,
+                "hall_name": hall.name if hall else "",
+                "seats_per_row": seats_per_row,
+                "parsed_total": len(parsed),
+                "zones": zones,
+                "rows": parsed[:120],
+                "sample_errors": errors[:50],
+                "column_analysis": column_analysis,
+                "max_column_used": max_column_used,
+                "deepest_column_row_depth": deepest_row,
+                "suggested_seats_per_row_min": max_column_used if max_column_used else seats_per_row,
+                "rows_skipped_program_filter": filter_meta.get("rows_skipped_program_filter", 0),
+                "rows_skipped_missing_student_index": filter_meta.get(
+                    "rows_skipped_missing_student_index", 0
+                ),
+                "uses_explicit_file_columns": filter_meta.get("uses_explicit_file_columns", False),
+            }
+        )
+    if errors:
+        return JsonResponse({"detail": "Validation errors found in seating file.", "sample_errors": errors[:20]}, status=400)
+
+    if replace_existing:
+        queryset = SeatingAssignment.objects.filter(session_id=session_id)
+        if hall:
+            queryset = queryset.filter(hall=hall)
+        queryset.delete()
+
+    created = 0
+    with transaction.atomic():
+        for row in parsed:
+            _, was_created = SeatingAssignment.objects.update_or_create(
+                session_id=session_id,
+                hall=hall,
+                student_index=row["student_index"],
+                defaults={
+                    "full_name": row["full_name"],
+                    "program": row.get("program") or "",
+                    "row_number": row["row_number"],
+                    "column_number": row["column_number"],
+                    "seat_label": row["seat_label"],
+                    "zone": row["zone"],
+                    "created_by": request.auth_user,
+                },
+            )
+            if was_created:
+                created += 1
+
+    total_saved = SeatingAssignment.objects.filter(session_id=session_id, hall=hall).count()
+    return JsonResponse(
+        {
+            "ok": True,
+            "preview": False,
+            "session_id": session_id,
+            "hall_name": hall.name if hall else "",
+            "saved_count": total_saved,
+            "created": created,
+            "updated": max(0, len(parsed) - created),
+            "zones": zones,
+            "sample_errors": errors[:20],
+        }
+    )
+
+
+@require_GET
+def public_seating_lookup(request):
+    """
+    Student-facing seat lookup (no auth). Requires index / reference (q) only.
+    Optional session_id scopes to one upload; optional program narrows BIT-style lists.
+    Without session_id, the latest matching assignment (by created_at) is returned.
+    """
+    session_id = (request.GET.get("session_id") or request.GET.get("session") or "").strip()
+    q = (request.GET.get("q") or request.GET.get("student_index") or request.GET.get("index") or "").strip()
+    program_gate = (request.GET.get("program") or "").strip()
+    if not q:
+        return JsonResponse(
+            {"found": False, "detail": "Index or reference number (q) is required."},
+            status=400,
+        )
+
+    qs = SeatingAssignment.objects.select_related("hall").filter(student_index=q)
+    if program_gate:
+        qs = qs.filter(program__icontains=program_gate)
+    if session_id:
+        qs = qs.filter(session_id=session_id)
+    row = qs.order_by("-created_at").first()
+    if not row:
+        return JsonResponse(
+            {
+                "found": False,
+                "message": "Seat not found",
+                "student_index": q,
+                **({"session_id": session_id} if session_id else {}),
+            }
+        )
+
+    layout_qs = SeatingAssignment.objects.filter(
+        session_id=row.session_id,
+        zone=(row.zone or "MAIN") or "MAIN",
+    )
+    if row.hall_id:
+        layout_qs = layout_qs.filter(hall_id=row.hall_id)
+    else:
+        layout_qs = layout_qs.filter(hall_id__isnull=True)
+    agg = layout_qs.aggregate(mr=Max("row_number"), mc=Max("column_number"))
+    grid_max_row = int(agg["mr"] or row.row_number)
+    grid_max_column = int(agg["mc"] or row.column_number)
+
+    return JsonResponse(
+        {
+            "found": True,
+            "student_index": row.student_index,
+            "full_name": row.full_name or "",
+            "program": row.program or "",
+            "hall_name": row.hall.name if row.hall_id else "",
+            "row_number": row.row_number,
+            "column_number": row.column_number,
+            "seat_label": _seat_label_from_row_col(row.row_number, row.column_number),
+            "zone": row.zone or "MAIN",
+            "session_id": row.session_id,
+            "grid_max_row": grid_max_row,
+            "grid_max_column": grid_max_column,
+        }
+    )
+
+
+@require_http_methods(["GET"])
+@require_bearer_auth(roles=[UserRole.STAFF, UserRole.TA, UserRole.ADMIN])
+def seating_assignment_lookup(request):
+    session_id = (request.GET.get("session_id") or "").strip()
+    student_index = (request.GET.get("student_index") or "").strip()
+    if not session_id or not student_index:
+        return JsonResponse({"detail": "session_id and student_index are required."}, status=400)
+    hall_id = (request.GET.get("hall_id") or "").strip()
+    rows = SeatingAssignment.objects.select_related("hall").filter(session_id=session_id, student_index=student_index)
+    if hall_id:
+        rows = rows.filter(hall_id=hall_id)
+    row = rows.order_by("-created_at").first()
+    if not row:
+        return JsonResponse({"detail": "Student seat not found for this session."}, status=404)
+    return JsonResponse(
+        {
+            "session_id": row.session_id,
+            "student_index": row.student_index,
+            "full_name": row.full_name,
+            "program": row.program or "",
+            "hall_id": row.hall_id,
+            "hall_name": row.hall.name if row.hall_id else "",
+            "row_number": row.row_number,
+            "column_number": row.column_number,
+            "seat_label": _seat_label_from_row_col(row.row_number, row.column_number),
+            "zone": row.zone,
+        }
+    )
+
+
 def _serialize_booking(booking: TutorialBooking):
     return {
         "id": str(booking.id),
@@ -609,6 +1273,7 @@ def _create_activity(event_type, user, booking: TutorialBooking, note=""):
 @require_http_methods(["GET", "POST"])
 @require_bearer_auth(roles=[UserRole.STAFF, UserRole.TA, UserRole.ADMIN])
 def bookings_resource(request):
+    _refresh_tutorial_booking_statuses()
     user = request.auth_user
     if request.method == "GET":
         rows = (
@@ -712,6 +1377,7 @@ def call_off_booking(request, booking_id):
 @require_GET
 @require_bearer_auth()
 def activity_feed(request):
+    _refresh_tutorial_booking_statuses()
     limit = int(request.GET.get("limit", "12"))
     rows = ActivityEvent.objects.all()[: max(1, min(limit, 100))]
     data = [
@@ -734,6 +1400,7 @@ def activity_feed(request):
 @require_GET
 @require_bearer_auth(roles=[UserRole.STAFF, UserRole.TA, UserRole.ADMIN])
 def staff_analytics(request):
+    _refresh_tutorial_booking_statuses()
     user = request.auth_user
     now = timezone.localdate()
     me_bookings = TutorialBooking.objects.filter(booked_by=user)

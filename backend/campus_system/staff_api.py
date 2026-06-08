@@ -6,6 +6,10 @@ from campus_system.api_views import (
     fixed_timetable_list,
     fixed_timetable_upload,
     halls_availability_for_slot,
+    public_seating_lookup,
+    seating_assignment_lookup,
+    seating_assignments_list,
+    seating_assignments_upload,
     staff_analytics,
     time_slots_list,
 )
@@ -20,4 +24,8 @@ __all__ = [
     "fixed_timetable_list",
     "fixed_timetable_upload",
     "halls_availability_for_slot",
+    "seating_assignments_list",
+    "seating_assignments_upload",
+    "seating_assignment_lookup",
+    "public_seating_lookup",
 ]
